@@ -1,0 +1,17 @@
+/target
+target/
+
+# Xcode
+.derivedData/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+xcuserdata
+
+# Xcode build state
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+# SwiftPM
+.build/
+.swiftpm/
