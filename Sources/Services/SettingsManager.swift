@@ -27,6 +27,20 @@ class SettingsManager: ObservableObject {
     }
   }
 
+  /// Log retention in seconds. nil means no limit.
+  @Published var logRetentionSeconds: Int? = nil {
+    didSet {
+      saveSettings()
+    }
+  }
+
+  /// Unit for displaying retention (hours or days) - only for UI purposes
+  @Published var logRetentionUnit: RetentionUnit = .days {
+    didSet {
+      saveSettings()
+    }
+  }
+
   init() {
     loadSettings()
   }
@@ -37,12 +51,20 @@ class SettingsManager: ObservableObject {
       self.fontSize = settings.fontSize > 0 ? settings.fontSize : 12
       self.maxLineHistory = settings.maxLineHistory > 0 ? settings.maxLineHistory : 10000
       self.autoDirenv = settings.autoDirenv
+      self.logRetentionSeconds = settings.logRetentionSeconds
+      self.logRetentionUnit = settings.logRetentionUnit ?? .days
     }
   }
 
   private func saveSettings() {
     let settings = GlobalSettings(
-      theme: theme, fontSize: fontSize, maxLineHistory: maxLineHistory, autoDirenv: autoDirenv)
+      theme: theme,
+      fontSize: fontSize,
+      maxLineHistory: maxLineHistory,
+      autoDirenv: autoDirenv,
+      logRetentionSeconds: logRetentionSeconds,
+      logRetentionUnit: logRetentionUnit
+    )
     PersistenceManager.shared.saveSettings(settings)
   }
 

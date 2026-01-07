@@ -17,8 +17,11 @@ class PersistenceManager {
   private let fileManager = FileManager.default
   private var db: OpaquePointer?
 
-  /// Background queue for database writes (prevents blocking main thread)
-  private let writeQueue = DispatchQueue(label: "com.proceed.db.write", qos: .utility)
+  /// Serial queue for ALL database operations (SQLite isn't thread-safe by default)
+  private let dbQueue = DispatchQueue(label: "com.proceed.db", qos: .utility)
+
+  /// Timer for periodic cleanup
+  private var cleanupTimer: DispatchSourceTimer?
 
   /// Base directory for app state
   private var appSupportDirectory: URL {
@@ -40,9 +43,11 @@ class PersistenceManager {
     createDirectoriesIfNeeded()
     openDatabase()
     createTables()
+    startCleanupTimer()
   }
 
   deinit {
+    cleanupTimer?.cancel()
     sqlite3_close(db)
   }
 
@@ -120,7 +125,7 @@ class PersistenceManager {
     let timestampVal = timestamp.timeIntervalSince1970
     let kindVal = Int32(kind.rawValue)
 
-    writeQueue.async { [weak self] in
+    dbQueue.async { [weak self] in
       guard let self = self, let db = self.db else { return }
 
       let sql = "INSERT INTO log_lines (panel_id, text, timestamp, kind) VALUES (?, ?, ?, ?)"
@@ -154,7 +159,7 @@ class PersistenceManager {
       timestamps?.map { $0.timeIntervalSince1970 }
       ?? Array(repeating: Date().timeIntervalSince1970, count: lines.count)
 
-    writeQueue.async { [weak self] in
+    dbQueue.async { [weak self] in
       guard let self = self, let db = self.db else { return }
 
       sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
@@ -420,6 +425,74 @@ class PersistenceManager {
       return nil
     }
   }
+
+  // MARK: - Log Retention Cleanup
+
+  /// Start periodic cleanup timer (runs every 5 minutes)
+  private func startCleanupTimer() {
+    let timer = DispatchSource.makeTimerSource(queue: dbQueue)
+    timer.schedule(deadline: .now() + 60, repeating: 300)  // Start after 1 min, repeat every 5 min
+    timer.setEventHandler { [weak self] in
+      self?.performRetentionCleanup()
+    }
+    cleanupTimer = timer
+    timer.resume()
+  }
+
+  /// Delete old log entries based on retention setting, in small batches
+  private func performRetentionCleanup() {
+    // Get current retention setting
+    guard let settings = loadSettings(),
+          let retentionSeconds = settings.logRetentionSeconds
+    else {
+      return  // No limit set, skip cleanup
+    }
+
+    let cutoffTimestamp = Date().timeIntervalSince1970 - Double(retentionSeconds)
+    let batchSize = 1000  // Delete in batches to avoid long locks
+
+    // Delete old entries in batches
+    var totalDeleted = 0
+    var deletedThisBatch = 0
+
+    repeat {
+      deletedThisBatch = deleteOldLogsBatch(before: cutoffTimestamp, limit: batchSize)
+      totalDeleted += deletedThisBatch
+
+      // Small delay between batches to let other operations through
+      if deletedThisBatch == batchSize {
+        Thread.sleep(forTimeInterval: 0.05)  // 50ms pause between batches
+      }
+    } while deletedThisBatch == batchSize
+
+    if totalDeleted > 0 {
+      print("Log retention cleanup: deleted \(totalDeleted) old entries")
+    }
+  }
+
+  /// Delete a batch of old log entries, returns number deleted
+  private func deleteOldLogsBatch(before timestamp: Double, limit: Int) -> Int {
+    // Use a subquery to find IDs to delete (more efficient than DELETE with LIMIT on SQLite)
+    let sql = """
+      DELETE FROM log_lines WHERE id IN (
+        SELECT id FROM log_lines WHERE timestamp < ? LIMIT ?
+      )
+      """
+
+    var stmt: OpaquePointer?
+    guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+      return 0
+    }
+
+    sqlite3_bind_double(stmt, 1, timestamp)
+    sqlite3_bind_int(stmt, 2, Int32(limit))
+
+    let result = sqlite3_step(stmt)
+    let deleted = result == SQLITE_DONE ? Int(sqlite3_changes(db)) : 0
+    sqlite3_finalize(stmt)
+
+    return deleted
+  }
 }
 
 // MARK: - State Models
@@ -430,15 +503,23 @@ struct GlobalSettings: Codable {
   var fontSize: CGFloat
   var maxLineHistory: Int
   var autoDirenv: Bool
+  var logRetentionSeconds: Int?  // nil means no limit
+  var logRetentionUnit: RetentionUnit?  // for UI display purposes
 
   init(
-    theme: AppTheme = .auto, fontSize: CGFloat = 12, maxLineHistory: Int = 10000,
-    autoDirenv: Bool = false
+    theme: AppTheme = .auto,
+    fontSize: CGFloat = 12,
+    maxLineHistory: Int = 10000,
+    autoDirenv: Bool = false,
+    logRetentionSeconds: Int? = nil,
+    logRetentionUnit: RetentionUnit? = nil
   ) {
     self.theme = theme
     self.fontSize = fontSize
     self.maxLineHistory = maxLineHistory
     self.autoDirenv = autoDirenv
+    self.logRetentionSeconds = logRetentionSeconds
+    self.logRetentionUnit = logRetentionUnit
   }
 }
 
