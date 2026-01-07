@@ -178,9 +178,9 @@ final class LogContentView: NSView {
     // MARK: - Timestamp Formatting
 
     private static let timestampFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        return f
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
     }()
 
     // MARK: - Initialization
@@ -931,8 +931,6 @@ final class LogContentView: NSView {
 
 // MARK: - SwiftUI Bridge
 
-import SwiftUI
-
 struct LogContentViewRepresentable: NSViewRepresentable {
     let lines: [OutputLine]
     let font: NSFont
@@ -957,7 +955,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
         scrollView.documentView = contentView
 
         // IMPORTANT: Set references BEFORE registering notifications to avoid race condition
-        context.coordinator.Doc = contentView
+        context.coordinator.documentView = contentView
         context.coordinator.scrollView = scrollView
         context.coordinator.isTailingBinding = _isTailing
 
@@ -1075,7 +1073,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
 
     class Coordinator: NSObject {
         var lastScrollPosition: CGFloat = 0
-        weak var Doc: LogContentView?
+        weak var documentView: LogContentView?
         weak var scrollView: NSScrollView?
         var isTailingBinding: Binding<Bool>?
         private var lastUserScrollTime: Date?
@@ -1106,7 +1104,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
 
         @objc func clipViewFrameChanged(_ notification: Notification) {
             guard let clipView = notification.object as? NSClipView,
-                  let contentView = Doc else { return }
+                  let contentView = documentView else { return }
             let newWidth = clipView.bounds.width
             if newWidth > 0 && abs(contentView.bounds.width - newWidth) > 0.5 {
                 contentView.frame = NSRect(x: 0, y: 0, width: newWidth, height: contentView.frame.height)

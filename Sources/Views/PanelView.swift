@@ -274,5 +274,3 @@ struct TitleBarButton: View {
         return Color.gray.opacity(0.15)
     }
 }
-
-

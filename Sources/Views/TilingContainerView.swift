@@ -332,4 +332,3 @@ struct PanelDropDelegate: DropDelegate {
         dropPosition = rawPosition
     }
 }
-

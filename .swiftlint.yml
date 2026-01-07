@@ -1,0 +1,43 @@
+# SwiftLint configuration
+
+disabled_rules:
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+  - large_tuple
+  - force_try
+  - implicit_optional_initialization
+  - opening_brace
+  - for_where
+
+opt_in_rules:
+  - empty_count
+
+identifier_name:
+  min_length: 1
+  max_length: 60
+  excluded:
+    - id
+    - x
+    - y
+    - w
+    - h
+    - i
+    - j
+    - r
+    - g
+    - b
+    - fg
+    - bg
+    - p
+
+line_length:
+  warning: 150
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+
+excluded:
+  - .build
+  - DerivedData

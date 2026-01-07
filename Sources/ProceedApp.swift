@@ -21,7 +21,7 @@ struct ProceedApp: App {
                 .keyboardShortcut("n", modifiers: .command)
             }
         }
-        
+
         Settings {
             SettingsView()
                 .environmentObject(settingsManager)
