@@ -88,7 +88,7 @@ final class TmuxBackend: ProcessBackend {
       "-c", config.workingDirectory,
       "-x", "200",
       "-y", "50",
-      shellCommand
+      shellCommand,
     ]
 
     let createResult = try await runTmux(tmuxArgs)
@@ -102,7 +102,7 @@ final class TmuxBackend: ProcessBackend {
     let pipeResult = try await runTmux([
       "pipe-pane",
       "-t", sessionId,
-      "cat >> '\(logPath.path)'"
+      "cat >> '\(logPath.path)'",
     ])
 
     if pipeResult.exitCode != 0 {
@@ -146,7 +146,7 @@ final class TmuxBackend: ProcessBackend {
     // #{pane_dead} is "1" if the command has exited, "0" if still running
     guard
       let result = try? await runTmux([
-        "display-message", "-t", handle.id, "-p", "#{pane_dead}"
+        "display-message", "-t", handle.id, "-p", "#{pane_dead}",
       ])
     else {
       return false
@@ -157,7 +157,7 @@ final class TmuxBackend: ProcessBackend {
   func listAll() async throws -> [ProcessHandle] {
     let result = try await runTmux([
       "list-sessions",
-      "-F", "#{session_name}"
+      "-F", "#{session_name}",
     ])
 
     // No sessions is not an error
@@ -321,7 +321,7 @@ final class TmuxBackend: ProcessBackend {
       _ = try? await runTmux([
         "pipe-pane",
         "-t", sessionId,
-        "cat >> '\(logPath.path)'"
+        "cat >> '\(logPath.path)'",
       ])
     }
 

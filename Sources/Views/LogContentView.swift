@@ -55,7 +55,7 @@ extension LogLine {
         let attrs: [NSAttributedString.Key: Any] = [
           .font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.75, weight: .medium),
           .foregroundColor: NSColor.secondaryLabelColor,
-          .backgroundColor: NSColor.quaternaryLabelColor
+          .backgroundColor: NSColor.quaternaryLabelColor,
         ]
         attrString.append(NSAttributedString(string: " \(name) ", attributes: attrs))
       }
@@ -306,7 +306,7 @@ final class LogContentView: NSView {
       }
       let attrs: [NSAttributedString.Key: Any] = [
         .font: italicFont,
-        .foregroundColor: color
+        .foregroundColor: color,
       ]
       return NSAttributedString(string: line.rawText, attributes: attrs)
     }
@@ -350,7 +350,7 @@ final class LogContentView: NSView {
         let attrs: [NSAttributedString.Key: Any] = [
           .font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.75, weight: .medium),
           .foregroundColor: NSColor.secondaryLabelColor,
-          .backgroundColor: NSColor.quaternaryLabelColor
+          .backgroundColor: NSColor.quaternaryLabelColor,
         ]
         attrString.append(NSAttributedString(string: " \(name) ", attributes: attrs))
       }
@@ -577,7 +577,7 @@ final class LogContentView: NSView {
 
     let attrs: [NSAttributedString.Key: Any] = [
       .font: timestampFont,
-      .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.6)
+      .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.6),
     ]
 
     let attrString = NSAttributedString(string: timestamp, attributes: attrs)
