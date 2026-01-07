@@ -1,0 +1,60 @@
+name: Build and Test
+
+on:
+  push:
+    tags:
+      - "release-*"
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: brew install swiftlint swift-format
+
+      - name: Lint
+        run: make lint
+
+      - name: Check formatting
+        run: make format-check
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build Debug
+        run: make debug
+
+      - name: Build Release
+        run: make release
+
+      - name: Create zip
+        if: startsWith(github.ref, 'refs/tags/release-')
+        run: make zip
+
+      - name: Extract version from tag
+        if: startsWith(github.ref, 'refs/tags/release-')
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/release-}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/release-')
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Proceed ${{ steps.version.outputs.VERSION }}
+          files: Proceed.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
