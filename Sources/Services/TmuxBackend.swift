@@ -88,7 +88,7 @@ final class TmuxBackend: ProcessBackend {
       "-c", config.workingDirectory,
       "-x", "200",
       "-y", "50",
-      shellCommand,
+      shellCommand
     ]
 
     let createResult = try await runTmux(tmuxArgs)
@@ -102,7 +102,7 @@ final class TmuxBackend: ProcessBackend {
     let pipeResult = try await runTmux([
       "pipe-pane",
       "-t", sessionId,
-      "cat >> '\(logPath.path)'",
+      "cat >> '\(logPath.path)'"
     ])
 
     if pipeResult.exitCode != 0 {
@@ -146,7 +146,7 @@ final class TmuxBackend: ProcessBackend {
     // #{pane_dead} is "1" if the command has exited, "0" if still running
     guard
       let result = try? await runTmux([
-        "display-message", "-t", handle.id, "-p", "#{pane_dead}",
+        "display-message", "-t", handle.id, "-p", "#{pane_dead}"
       ])
     else {
       return false
@@ -157,7 +157,7 @@ final class TmuxBackend: ProcessBackend {
   func listAll() async throws -> [ProcessHandle] {
     let result = try await runTmux([
       "list-sessions",
-      "-F", "#{session_name}",
+      "-F", "#{session_name}"
     ])
 
     // No sessions is not an error
@@ -321,7 +321,7 @@ final class TmuxBackend: ProcessBackend {
       _ = try? await runTmux([
         "pipe-pane",
         "-t", sessionId,
-        "cat >> '\(logPath.path)'",
+        "cat >> '\(logPath.path)'"
       ])
     }
 
@@ -413,8 +413,8 @@ private class PipeReader {
   private var stopped = false
   private let readQueue = DispatchQueue(label: "com.proceed.pipereader", qos: .userInitiated)
 
-  private static let LF: UInt8 = 0x0A  // \n
-  private static let CR: UInt8 = 0x0D  // \r
+  private static let lineFeed: UInt8 = 0x0A  // \n
+  private static let carriageReturn: UInt8 = 0x0D  // \r
 
   init(path: URL, fromBeginning: Bool, onLine: ((String) -> Void)?, onLines: (([String]) -> Void)?)
   {
@@ -488,12 +488,12 @@ private class PipeReader {
     // Collect all complete lines in this batch
     var batchedLines: [String] = []
 
-    // Process complete lines by finding LF bytes directly
-    while let lfIndex = dataBuffer.firstIndex(of: PipeReader.LF) {
+    // Process complete lines by finding lineFeed bytes directly
+    while let lfIndex = dataBuffer.firstIndex(of: PipeReader.lineFeed) {
       var lineEnd = lfIndex
       // Check for \r\n (strip the \r)
       if lineEnd > dataBuffer.startIndex
-        && dataBuffer[dataBuffer.index(before: lineEnd)] == PipeReader.CR
+        && dataBuffer[dataBuffer.index(before: lineEnd)] == PipeReader.carriageReturn
       {
         lineEnd = dataBuffer.index(before: lineEnd)
       }
@@ -507,7 +507,7 @@ private class PipeReader {
         }
       }
 
-      // Remove processed data including the LF
+      // Remove processed data including the lineFeed
       dataBuffer.removeSubrange(dataBuffer.startIndex...lfIndex)
     }
 
