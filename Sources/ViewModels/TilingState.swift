@@ -13,6 +13,9 @@ class TilingState: ObservableObject {
   @Published var processes: [UUID: RunningProcess] = [:]
   @Published var focusedPanelId: UUID?
 
+  /// Trigger to show filter bar on focused panel (increments to trigger)
+  @Published var showFilterBarTrigger: Int = 0
+
   /// Last used working directory (persisted for dialog)
   @Published var lastWorkingDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
 

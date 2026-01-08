@@ -13,9 +13,18 @@ struct PanelView: View {
   @State private var currentTime: Date = Date()
   private let durationTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+  // Filter bar state
+  @State private var isFilterBarVisible: Bool = false
+  @State private var filterText: String = ""
+  @State private var debouncedFilterText: String = ""
+  @FocusState private var isFilterFieldFocused: Bool
+
   var body: some View {
     VStack(spacing: 0) {
       titleBar
+      if isFilterBarVisible {
+        filterBar
+      }
       contentArea
     }
     .background(Color(NSColor.windowBackgroundColor))
@@ -24,6 +33,11 @@ struct PanelView: View {
       RoundedRectangle(cornerRadius: 6)
         .stroke(Color.gray.opacity(0.3), lineWidth: 1)
     )
+    .contentShape(Rectangle())
+    .onTapGesture {
+      // Clicking anywhere in panel focuses it
+      tilingState.focusedPanelId = panel.id
+    }
     .opacity(isDraggingThisPanel ? 0.5 : 1.0)
     .onReceive(durationTimer) { time in
       // Only update if running (stopped processes don't need updates)
@@ -34,6 +48,37 @@ struct PanelView: View {
     .onReceive(panel.objectWillChange) { _ in
       // Explicit subscription to panel changes - ensures view updates
       // even when @ObservedObject subscription is lost (e.g., for restored panels)
+    }
+    .onChange(of: tilingState.showFilterBarTrigger) { _ in
+      // Show filter bar when triggered and this panel is focused
+      if isFocused && !isFilterBarVisible {
+        isFilterBarVisible = true
+        isFilterFieldFocused = true
+      }
+    }
+  }
+
+  // MARK: - Filtered Lines
+
+  /// Lines filtered by the current regex, or all lines if no filter
+  private var filteredLines: [OutputLine] {
+    let pattern = debouncedFilterText.trimmingCharacters(in: .whitespaces)
+
+    // Empty or ".*" means no filter
+    guard !pattern.isEmpty, pattern != ".*" else {
+      return panel.lines
+    }
+
+    // Try to compile the regex (case insensitive)
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
+      // Invalid regex - show all lines
+      return panel.lines
+    }
+
+    return panel.lines.filter { line in
+      let text = line.rawText
+      let range = NSRange(text.startIndex..., in: text)
+      return regex.firstMatch(in: text, options: [], range: range) != nil
     }
   }
 
@@ -209,9 +254,12 @@ struct PanelView: View {
 
   private var contentArea: some View {
     LogContentViewRepresentable(
-      lines: panel.lines,
+      lines: filteredLines,
       font: NSFont.monospacedSystemFont(ofSize: settingsManager.fontSize, weight: .regular),
       gutterWidth: 85,
+      onClicked: {
+        tilingState.focusedPanelId = panel.id
+      },
       scrollToBottom: $scrollToBottomTrigger,
       isTailing: $isTailing
     )
@@ -226,9 +274,156 @@ struct PanelView: View {
         .keyboardShortcut("-", modifiers: .command).opacity(0)
     }
   }
+
+  // MARK: - Filter Bar
+
+  private var filterBar: some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 6) {
+        FunnelIcon()
+          .foregroundColor(.secondary)
+          .frame(width: 12, height: 12)
+
+        FilterTextField(text: $filterText, fontSize: settingsManager.fontSize)
+          .focused($isFilterFieldFocused)
+          .onChange(of: filterText) { newValue in
+            debounceFilterUpdate(newValue)
+          }
+
+        if !filterText.isEmpty {
+          Text("\(filteredLines.count)/\(panel.lines.count)")
+            .font(.system(size: 10))
+            .foregroundColor(.secondary)
+        }
+
+        Button(action: closeFilterBar) {
+          Image(systemName: "xmark.circle.fill")
+            .foregroundColor(.secondary)
+            .font(.system(size: 12))
+        }
+        .buttonStyle(.plain)
+        .help("Close filter (Esc)")
+      }
+      .padding(.horizontal, 10)
+      .padding(.vertical, 6)
+      .background(Color(NSColor.controlBackgroundColor))
+
+      Divider()
+    }
+    .onExitCommand {
+      closeFilterBar()
+    }
+  }
+
+  private func closeFilterBar() {
+    isFilterBarVisible = false
+    filterText = ""
+    debouncedFilterText = ""
+    isFilterFieldFocused = false
+  }
+
+  @State private var filterDebounceTask: Task<Void, Never>?
+
+  private func debounceFilterUpdate(_ newValue: String) {
+    filterDebounceTask?.cancel()
+    filterDebounceTask = Task {
+      try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms debounce
+      if !Task.isCancelled {
+        await MainActor.run {
+          debouncedFilterText = newValue
+        }
+      }
+    }
+  }
 }
 
 // MARK: - Subviews
+
+/// Classic funnel/filter icon shape
+struct FunnelIcon: View {
+  var body: some View {
+    GeometryReader { geo in
+      Path { path in
+        let w = geo.size.width
+        let h = geo.size.height
+        let stemWidth = w * 0.25
+        let stemHeight = h * 0.35
+        let funnelTop = h * 0.15
+
+        // Start at top-left
+        path.move(to: CGPoint(x: 0, y: funnelTop))
+        // Top edge
+        path.addLine(to: CGPoint(x: w, y: funnelTop))
+        // Right side down to stem
+        path.addLine(to: CGPoint(x: (w + stemWidth) / 2, y: h - stemHeight))
+        // Right side of stem
+        path.addLine(to: CGPoint(x: (w + stemWidth) / 2, y: h))
+        // Bottom of stem
+        path.addLine(to: CGPoint(x: (w - stemWidth) / 2, y: h))
+        // Left side of stem
+        path.addLine(to: CGPoint(x: (w - stemWidth) / 2, y: h - stemHeight))
+        // Left side up to top
+        path.addLine(to: CGPoint(x: 0, y: funnelTop))
+        path.closeSubpath()
+      }
+      .fill()
+    }
+  }
+}
+
+/// Single-line text field that ignores Return/Option+Return
+struct FilterTextField: NSViewRepresentable {
+  @Binding var text: String
+  let fontSize: CGFloat
+
+  func makeNSView(context: Context) -> NSTextField {
+    let textField = NSTextField()
+    textField.stringValue = text
+    textField.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+    textField.isBordered = false
+    textField.backgroundColor = .clear
+    textField.focusRingType = .none
+    textField.placeholderString = "Filter (regex)"
+    textField.delegate = context.coordinator
+    return textField
+  }
+
+  func updateNSView(_ nsView: NSTextField, context: Context) {
+    if nsView.stringValue != text {
+      nsView.stringValue = text
+    }
+    nsView.font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(self)
+  }
+
+  class Coordinator: NSObject, NSTextFieldDelegate {
+    var parent: FilterTextField
+
+    init(_ parent: FilterTextField) {
+      self.parent = parent
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+      guard let textField = obj.object as? NSTextField else { return }
+      parent.text = textField.stringValue
+    }
+
+    func control(
+      _ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector
+    ) -> Bool {
+      // Intercept Return and Option+Return (insertNewline and insertNewlineIgnoringFieldEditor)
+      if commandSelector == #selector(NSResponder.insertNewline(_:))
+        || commandSelector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
+      {
+        return true  // Consume the event
+      }
+      return false
+    }
+  }
+}
 
 struct TitleBarButton: View {
   let icon: String

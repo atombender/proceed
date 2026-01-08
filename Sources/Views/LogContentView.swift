@@ -163,6 +163,7 @@ final class LogContentView: NSView {
   var onSelectionChanged: ((TextSelection?) -> Void)?
   var onLineSelectionChanged: ((Set<Int>) -> Void)?
   var onHeightChanged: (() -> Void)?  // Called when content height changes significantly
+  var onClicked: (() -> Void)?  // Called when view is clicked (for focus)
 
   // MARK: - Selection State
 
@@ -682,6 +683,9 @@ final class LogContentView: NSView {
 
     window?.makeFirstResponder(self)
 
+    // Notify parent that view was clicked (for focus)
+    onClicked?()
+
     if isInGutter(point) {
       // Gutter click - line selection
       handleGutterMouseDown(at: point, event: event)
@@ -951,6 +955,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
   let lines: [OutputLine]
   let font: NSFont
   let gutterWidth: CGFloat
+  var onClicked: (() -> Void)?
 
   @Binding var scrollToBottom: Bool
   @Binding var isTailing: Bool
@@ -967,6 +972,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     contentView.font = font
     contentView.gutterWidth = gutterWidth
     contentView.setLines(lines)
+    contentView.onClicked = onClicked
 
     scrollView.documentView = contentView
 

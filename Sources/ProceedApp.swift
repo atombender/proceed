@@ -1,9 +1,25 @@
 import SwiftUI
 
+// MARK: - Focused Values for Menu Commands
+
+struct FocusedTilingStateKey: FocusedValueKey {
+  typealias Value = TilingState
+}
+
+extension FocusedValues {
+  var tilingState: TilingState? {
+    get { self[FocusedTilingStateKey.self] }
+    set { self[FocusedTilingStateKey.self] = newValue }
+  }
+}
+
+// MARK: - App
+
 @main
 struct ProceedApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   @ObservedObject private var settingsManager = SettingsManager.shared
+  @FocusedValue(\.tilingState) var focusedTilingState
 
   var body: some Scene {
     WindowGroup {
@@ -19,6 +35,46 @@ struct ProceedApp: App {
           NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
         }
         .keyboardShortcut("n", modifiers: .command)
+      }
+
+      // Add items to the existing View menu
+      CommandGroup(after: .toolbar) {
+        Divider()
+
+        Button("Run Process…") {
+          focusedTilingState?.editingPanelId = nil
+          focusedTilingState?.showRunDialog = true
+        }
+        .keyboardShortcut("r", modifiers: .command)
+
+        Button("Filter") {
+          focusedTilingState?.showFilterBarTrigger += 1
+        }
+        .keyboardShortcut("f", modifiers: .command)
+
+        Divider()
+
+        Button("Edit Panel…") {
+          if let panelId = focusedTilingState?.focusedPanelId {
+            focusedTilingState?.editingPanelId = panelId
+            focusedTilingState?.showRunDialog = true
+          }
+        }
+        .keyboardShortcut("e", modifiers: .command)
+
+        Button("Start/Stop") {
+          if let panelId = focusedTilingState?.focusedPanelId {
+            focusedTilingState?.toggleProcess(forPanelId: panelId)
+          }
+        }
+        .keyboardShortcut("s", modifiers: .command)
+
+        Button("Restart") {
+          if let panelId = focusedTilingState?.focusedPanelId {
+            focusedTilingState?.reloadProcess(forPanelId: panelId)
+          }
+        }
+        .keyboardShortcut("p", modifiers: .command)
       }
     }
 

@@ -30,15 +30,8 @@ struct ContentView: View {
     .sheet(isPresented: $tilingState.showRunDialog) {
       RunProcessDialog(tilingState: tilingState)
     }
+    .focusedSceneValue(\.tilingState, tilingState)
     .background {
-      // Hidden button to capture Cmd+R in this window
-      Button("") {
-        tilingState.editingPanelId = nil  // Clear editing state for new process
-        tilingState.showRunDialog = true
-      }
-      .keyboardShortcut("r", modifiers: .command)
-      .opacity(0)
-
       // Window accessor to track NSWindow and apply frame
       WindowAccessor(tilingState: tilingState, windowTitle: tilingState.windowTitle)
     }
