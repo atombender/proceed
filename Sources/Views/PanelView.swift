@@ -215,6 +215,7 @@ struct PanelView: View {
       scrollToBottom: $scrollToBottomTrigger,
       isTailing: $isTailing
     )
+    .allowsHitTesting(!isDraggingThisPanel)
     .onAppear {
       isTailing = true
     }
