@@ -8,6 +8,8 @@ Proceed is a simple process manager for macOS:
 * Log output is stored in SQLite.
 * Automatic loading of direnv.
 
+![Proceed screenshot](docs/screengrab.gif)
+
 # Dependencies
 
 * macOS 15+
