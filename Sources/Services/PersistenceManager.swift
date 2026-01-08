@@ -192,53 +192,61 @@ class PersistenceManager {
   func readLog(for panelId: UUID, limit: Int = 10000) -> [(
     text: String, timestamp: Date, kind: LogEntryKind
   )] {
-    var results: [(text: String, timestamp: Date, kind: LogEntryKind)] = []
+    dbQueue.sync { [weak self] () -> [(text: String, timestamp: Date, kind: LogEntryKind)] in
+      guard let self = self, let db = self.db else { return [] }
 
-    // Get the most recent lines, but return them in chronological order
-    let sql = """
-      SELECT text, timestamp, kind FROM (
-          SELECT text, timestamp, kind FROM log_lines
-          WHERE panel_id = ?
-          ORDER BY id DESC
-          LIMIT ?
-      ) ORDER BY timestamp ASC
-      """
-    var stmt: OpaquePointer?
+      var results: [(text: String, timestamp: Date, kind: LogEntryKind)] = []
 
-    if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-      sqlite3_bind_text(
-        stmt, 1, panelId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-      sqlite3_bind_int(stmt, 2, Int32(limit))
+      // Get the most recent lines, but return them in chronological order
+      let sql = """
+        SELECT text, timestamp, kind FROM (
+            SELECT text, timestamp, kind FROM log_lines
+            WHERE panel_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+        ) ORDER BY timestamp ASC
+        """
+      var stmt: OpaquePointer?
 
-      while sqlite3_step(stmt) == SQLITE_ROW {
-        if let textPtr = sqlite3_column_text(stmt, 0) {
-          let text = String(cString: textPtr)
-          let timestamp = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1))
-          let kindRaw = sqlite3_column_int(stmt, 2)
-          let kind = LogEntryKind(rawValue: Int(kindRaw)) ?? .output
-          results.append((text: text, timestamp: timestamp, kind: kind))
+      if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+        sqlite3_bind_text(
+          stmt, 1, panelId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_int(stmt, 2, Int32(limit))
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+          if let textPtr = sqlite3_column_text(stmt, 0) {
+            let text = String(cString: textPtr)
+            let timestamp = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1))
+            let kindRaw = sqlite3_column_int(stmt, 2)
+            let kind = LogEntryKind(rawValue: Int(kindRaw)) ?? .output
+            results.append((text: text, timestamp: timestamp, kind: kind))
+          }
         }
       }
-    }
-    sqlite3_finalize(stmt)
+      sqlite3_finalize(stmt)
 
-    return results
+      return results
+    }
   }
 
   /// Delete all log entries for a panel
   func deleteLog(for panelId: UUID) {
-    let sql = "DELETE FROM log_lines WHERE panel_id = ?"
-    var stmt: OpaquePointer?
+    dbQueue.async { [weak self] in
+      guard let self = self, let db = self.db else { return }
 
-    if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-      sqlite3_bind_text(
-        stmt, 1, panelId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+      let sql = "DELETE FROM log_lines WHERE panel_id = ?"
+      var stmt: OpaquePointer?
 
-      if sqlite3_step(stmt) != SQLITE_DONE {
-        print("Error deleting log: \(String(cString: sqlite3_errmsg(db)))")
+      if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+        sqlite3_bind_text(
+          stmt, 1, panelId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+
+        if sqlite3_step(stmt) != SQLITE_DONE {
+          print("Error deleting log: \(String(cString: sqlite3_errmsg(db)))")
+        }
       }
+      sqlite3_finalize(stmt)
     }
-    sqlite3_finalize(stmt)
   }
 
   // MARK: - Run History
@@ -260,62 +268,70 @@ class PersistenceManager {
 
   /// Record a process run in history
   func recordRun(name: String, command: String, workingDirectory: String, shell: String) {
-    let sql =
-      "INSERT INTO run_history (name, command, working_directory, shell, started_at) VALUES (?, ?, ?, ?, ?)"
-    var stmt: OpaquePointer?
+    dbQueue.async { [weak self] in
+      guard let self = self, let db = self.db else { return }
 
-    if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-      sqlite3_bind_text(stmt, 1, name, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-      sqlite3_bind_text(stmt, 2, command, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-      sqlite3_bind_text(
-        stmt, 3, workingDirectory, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-      sqlite3_bind_text(stmt, 4, shell, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-      sqlite3_bind_double(stmt, 5, Date().timeIntervalSince1970)
+      let sql =
+        "INSERT INTO run_history (name, command, working_directory, shell, started_at) VALUES (?, ?, ?, ?, ?)"
+      var stmt: OpaquePointer?
 
-      if sqlite3_step(stmt) != SQLITE_DONE {
-        print("Error recording run: \(String(cString: sqlite3_errmsg(db)))")
+      if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+        sqlite3_bind_text(stmt, 1, name, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 2, command, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 3, workingDirectory, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(stmt, 4, shell, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_double(stmt, 5, Date().timeIntervalSince1970)
+
+        if sqlite3_step(stmt) != SQLITE_DONE {
+          print("Error recording run: \(String(cString: sqlite3_errmsg(db)))")
+        }
       }
+      sqlite3_finalize(stmt)
     }
-    sqlite3_finalize(stmt)
   }
 
   /// Get recent runs (most recent first)
   func getRecentRuns(limit: Int = 10) -> [RunHistoryEntry] {
-    var results: [RunHistoryEntry] = []
+    dbQueue.sync { [weak self] () -> [RunHistoryEntry] in
+      guard let self = self, let db = self.db else { return [] }
 
-    let sql = """
-      SELECT id, name, command, working_directory, shell, started_at
-      FROM run_history
-      ORDER BY started_at DESC
-      LIMIT ?
-      """
-    var stmt: OpaquePointer?
+      var results: [RunHistoryEntry] = []
 
-    if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-      sqlite3_bind_int(stmt, 1, Int32(limit))
+      let sql = """
+        SELECT id, name, command, working_directory, shell, started_at
+        FROM run_history
+        ORDER BY started_at DESC
+        LIMIT ?
+        """
+      var stmt: OpaquePointer?
 
-      while sqlite3_step(stmt) == SQLITE_ROW {
-        let id = sqlite3_column_int64(stmt, 0)
-        let name = String(cString: sqlite3_column_text(stmt, 1))
-        let command = String(cString: sqlite3_column_text(stmt, 2))
-        let workingDirectory = String(cString: sqlite3_column_text(stmt, 3))
-        let shell = String(cString: sqlite3_column_text(stmt, 4))
-        let startedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+      if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+        sqlite3_bind_int(stmt, 1, Int32(limit))
 
-        results.append(
-          RunHistoryEntry(
-            id: id,
-            name: name,
-            command: command,
-            workingDirectory: workingDirectory,
-            shell: shell,
-            startedAt: startedAt
-          ))
+        while sqlite3_step(stmt) == SQLITE_ROW {
+          let id = sqlite3_column_int64(stmt, 0)
+          let name = String(cString: sqlite3_column_text(stmt, 1))
+          let command = String(cString: sqlite3_column_text(stmt, 2))
+          let workingDirectory = String(cString: sqlite3_column_text(stmt, 3))
+          let shell = String(cString: sqlite3_column_text(stmt, 4))
+          let startedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+
+          results.append(
+            RunHistoryEntry(
+              id: id,
+              name: name,
+              command: command,
+              workingDirectory: workingDirectory,
+              shell: shell,
+              startedAt: startedAt
+            ))
+        }
       }
-    }
-    sqlite3_finalize(stmt)
+      sqlite3_finalize(stmt)
 
-    return results
+      return results
+    }
   }
 
   // MARK: - State Persistence
@@ -447,7 +463,7 @@ class PersistenceManager {
   private func performRetentionCleanup() {
     // Get current retention setting
     guard let settings = loadSettings(),
-          let retentionSeconds = settings.logRetentionSeconds
+      let retentionSeconds = settings.logRetentionSeconds
     else {
       return  // No limit set, skip cleanup
     }

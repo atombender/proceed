@@ -31,14 +31,26 @@ class WindowManager: ObservableObject {
     // Cancel any pending save
     saveDebounceWorkItem?.cancel()
 
+    // Capture window frames on main thread (UI API)
+    let windowFrames = captureWindowFrames()
+
     // Schedule new save after 1 second of inactivity
     let workItem = DispatchWorkItem { [weak self] in
-      self?.saveAllStates()
+      self?.saveAllStates(windowFrames: windowFrames)
     }
     saveDebounceWorkItem = workItem
     lock.unlock()
 
     saveQueue.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+  }
+
+  /// Capture window frames - must be called on main thread
+  private func captureWindowFrames() -> [UUID: NSRect] {
+    var frames: [UUID: NSRect] = [:]
+    for (windowId, window) in nsWindows {
+      frames[windowId] = window.frame
+    }
+    return frames
   }
 
   /// Register a window's tiling state
@@ -71,14 +83,20 @@ class WindowManager: ObservableObject {
   }
 
   /// Save all window states
-  func saveAllStates() {
+  /// - Parameter windowFrames: Pre-captured window frames (captured on main thread)
+  func saveAllStates(windowFrames: [UUID: NSRect]? = nil) {
     lock.lock()
     let states = windowStates
+    // If no frames provided, capture them now (assumes we're on main thread)
+    let frames = windowFrames ?? captureWindowFrames()
     lock.unlock()
 
     var allWindowStates: [WindowStateData] = []
 
-    for (windowId, tilingState) in states {
+    // Sort by windowId for deterministic save order (matches restore order)
+    let sortedStates = states.sorted { $0.key.uuidString < $1.key.uuidString }
+
+    for (windowId, tilingState) in sortedStates {
       guard !tilingState.panels.isEmpty else { continue }
 
       var panelStates: [PanelState] = []
@@ -116,8 +134,8 @@ class WindowManager: ObservableObject {
 
       let layoutNode = tilingState.rootNode.map { convertToLayoutNode($0) }
 
-      // Get window frame
-      let frame = nsWindows[windowId]?.frame
+      // Get window frame from pre-captured frames
+      let frame = frames[windowId]
 
       allWindowStates.append(
         WindowStateData(
@@ -145,7 +163,9 @@ class WindowManager: ObservableObject {
     guard isRestorationActive else { return nil }
 
     if !hasLoadedPendingStates {
-      pendingRestoreStates = PersistenceManager.shared.loadMultiWindowState()?.windows ?? []
+      // Sort by windowId for deterministic restore order (matches save order)
+      let loaded = PersistenceManager.shared.loadMultiWindowState()?.windows ?? []
+      pendingRestoreStates = loaded.sorted { $0.windowId.uuidString < $1.windowId.uuidString }
       hasLoadedPendingStates = true
     }
 
@@ -170,7 +190,9 @@ class WindowManager: ObservableObject {
     defer { lock.unlock() }
 
     if !hasLoadedPendingStates {
-      pendingRestoreStates = PersistenceManager.shared.loadMultiWindowState()?.windows ?? []
+      // Sort by windowId for deterministic restore order (matches save order)
+      let loaded = PersistenceManager.shared.loadMultiWindowState()?.windows ?? []
+      pendingRestoreStates = loaded.sorted { $0.windowId.uuidString < $1.windowId.uuidString }
       hasLoadedPendingStates = true
     }
 

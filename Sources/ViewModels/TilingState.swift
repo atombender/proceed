@@ -83,7 +83,8 @@ class TilingState: ObservableObject {
       let status: ProcessStatus
       switch panelState.status {
       case .running:
-        status = .exitedNormally
+        // Keep as running initially - reconnection will verify or correct this
+        status = .running
       case .exitedNormally:
         status = .exitedNormally
       case .exitedWithError(let code):
@@ -386,6 +387,42 @@ class TilingState: ObservableObject {
     }
   }
 
+  /// Toggle a process: stop if running, start if stopped
+  func toggleProcess(forPanelId panelId: UUID) {
+    guard let panel = panels[panelId] else { return }
+
+    if panel.status == .running {
+      stopProcess(forPanelId: panelId)
+    } else {
+      restartProcess(forPanelId: panelId)
+    }
+  }
+
+  /// Reload a process: stop if running, then start
+  func reloadProcess(forPanelId panelId: UUID) {
+    guard let panel = panels[panelId] else { return }
+
+    if panel.status == .running {
+      stopProcess(forPanelId: panelId)
+
+      // Wait for process to stop, then restart
+      Task {
+        for _ in 0..<100 {
+          try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
+          if panel.status != .running {
+            break
+          }
+        }
+
+        await MainActor.run {
+          restartProcess(forPanelId: panelId)
+        }
+      }
+    } else {
+      restartProcess(forPanelId: panelId)
+    }
+  }
+
   /// Update a process configuration
   /// - Returns: true if process needs restart (command/shell/workingDirectory changed)
   func updateProcess(forPanelId panelId: UUID, newConfig: ProcessConfig) {
@@ -398,18 +435,23 @@ class TilingState: ObservableObject {
       || oldConfig.workingDirectory != newConfig.workingDirectory
 
     if needsRestart {
+      // Track if process was running before edit
+      let wasRunning = panel.status == .running
+
       // Stop existing process if running
-      if panel.status == .running {
+      if wasRunning {
         stopProcess(forPanelId: panelId)
       }
 
-      // Wait briefly for stop, then restart with new config
+      // Update config (and restart only if was running)
       Task {
-        // Wait for process to stop (poll every 100ms, max 5 seconds)
-        for _ in 0..<50 {
-          try? await Task.sleep(nanoseconds: 100_000_000)
-          if panel.status != .running {
-            break
+        // Wait for process to stop if it was running
+        if wasRunning {
+          for _ in 0..<50 {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            if panel.status != .running {
+              break
+            }
           }
         }
 
@@ -424,18 +466,21 @@ class TilingState: ObservableObject {
             processes.removeValue(forKey: existingProcess.config.id)
           }
 
-          // Record in run history
-          PersistenceManager.shared.recordRun(
-            name: newConfig.name,
-            command: newConfig.command,
-            workingDirectory: newConfig.workingDirectory,
-            shell: newConfig.shell
-          )
+          // Only restart if it was previously running
+          if wasRunning {
+            // Record in run history
+            PersistenceManager.shared.recordRun(
+              name: newConfig.name,
+              command: newConfig.command,
+              workingDirectory: newConfig.workingDirectory,
+              shell: newConfig.shell
+            )
 
-          // Create and start new process
-          let runningProcess = RunningProcess(config: newConfig, panel: panel)
-          processes[newConfig.id] = runningProcess
-          runningProcess.start(using: backend)
+            // Create and start new process
+            let runningProcess = RunningProcess(config: newConfig, panel: panel)
+            processes[newConfig.id] = runningProcess
+            runningProcess.start(using: backend)
+          }
 
           // Update last used values
           lastCommand = newConfig.command
