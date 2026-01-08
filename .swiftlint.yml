@@ -10,6 +10,8 @@ disabled_rules:
   - implicit_optional_initialization
   - opening_brace
   - for_where
+  - trailing_comma
+  - closure_parameter_position
 
 opt_in_rules:
   - empty_count
