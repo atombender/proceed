@@ -374,7 +374,11 @@ class PersistenceManager {
       let encoder = JSONEncoder()
       encoder.outputFormatting = .prettyPrinted
       let data = try encoder.encode(state)
-      try data.write(to: multiWindowStateFilePath)
+
+      // Write atomically: write to temp file, then rename
+      let tempPath = multiWindowStateFilePath.appendingPathExtension("tmp")
+      try data.write(to: tempPath)
+      _ = try fileManager.replaceItemAt(multiWindowStateFilePath, withItemAt: tempPath)
     } catch {
       print("Error saving multi-window state: \(error)")
     }

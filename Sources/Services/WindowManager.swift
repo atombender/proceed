@@ -19,7 +19,27 @@ class WindowManager: ObservableObject {
   /// Whether the app is terminating
   private var isTerminating = false
 
+  /// Debounce timer for auto-save
+  private var saveDebounceWorkItem: DispatchWorkItem?
+  private let saveQueue = DispatchQueue(label: "com.proceed.windowmanager.save", qos: .utility)
+
   private init() {}
+
+  /// Schedule a debounced save (coalesces rapid changes)
+  func scheduleSave() {
+    lock.lock()
+    // Cancel any pending save
+    saveDebounceWorkItem?.cancel()
+
+    // Schedule new save after 1 second of inactivity
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.saveAllStates()
+    }
+    saveDebounceWorkItem = workItem
+    lock.unlock()
+
+    saveQueue.asyncAfter(deadline: .now() + 1.0, execute: workItem)
+  }
 
   /// Register a window's tiling state
   func register(windowId: UUID, state: TilingState, window: NSWindow? = nil) {

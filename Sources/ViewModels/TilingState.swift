@@ -3,8 +3,12 @@ import SwiftUI
 
 /// Manages the overall tiling state and running processes
 class TilingState: ObservableObject {
-  @Published var panels: [UUID: Panel] = [:]
-  @Published var rootNode: TileNode?
+  @Published var panels: [UUID: Panel] = [:] {
+    didSet { WindowManager.shared.scheduleSave() }
+  }
+  @Published var rootNode: TileNode? {
+    didSet { WindowManager.shared.scheduleSave() }
+  }
   @Published var dragState: DragState?
   @Published var processes: [UUID: RunningProcess] = [:]
   @Published var focusedPanelId: UUID?
