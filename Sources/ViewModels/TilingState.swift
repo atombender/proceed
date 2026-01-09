@@ -72,18 +72,11 @@ class TilingState: ObservableObject {
     lastCommand = state.lastCommand ?? ""
 
     // Restore frame
-    if let x = state.frameX, let y = state.frameY,
-      let w = state.frameWidth, let h = state.frameHeight
-    {
-      pendingFrame = NSRect(x: x, y: y, width: w, height: h)
-    }
-
     // Restore panels
     for panelState in state.panels {
       let status: ProcessStatus
       switch panelState.status {
       case .running:
-        // Keep as running initially - reconnection will verify or correct this
         status = .running
       case .exitedNormally:
         status = .exitedNormally
@@ -101,21 +94,30 @@ class TilingState: ObservableObject {
         )
       }
 
-      // Load lines from database (controller responsibility)
-      let limit = SettingsManager.shared.maxLineHistory
-      let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
-      let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
-
+      // Load lines from database asynchronously
+      // We initialize with empty lines to unblock the main thread immediately
       let panel = Panel(
         id: panelState.id,
         title: panelState.title,
         status: status,
-        lines: lines,
+        lines: [],  // Empty initially
         processConfig: processConfig,
         tmuxHandleId: panelState.handleId
       )
 
       panels[panel.id] = panel
+
+      // Kick off async load
+      Task.detached(priority: .userInitiated) { [weak panel] in
+        guard let panel = panel else { return }
+        let limit = await MainActor.run { SettingsManager.shared.maxLineHistory }
+        let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
+        let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
+
+        await MainActor.run {
+          panel.prependHistory(lines)
+        }
+      }
     }
 
     // Restore layout
@@ -491,14 +493,14 @@ class TilingState: ObservableObject {
           lastCommand = newConfig.command
           lastWorkingDirectory = newConfig.workingDirectory
 
-          saveState()
+          WindowManager.shared.scheduleSave()
         }
       }
     } else {
       // Only name changed - just update the panel title
       panel.processConfig = newConfig
       panel.title = newConfig.displayName
-      saveState()
+      WindowManager.shared.scheduleSave()
     }
   }
 
@@ -706,134 +708,7 @@ class TilingState: ObservableObject {
     return root.redundantDropPositions(dragging: draggedPanelId, onto: targetPanelId)
   }
 
-  // MARK: - Persistence
-
-  /// Save current state to disk
-  func saveState() {
-    var panelStates: [PanelState] = []
-
-    for (_, panel) in panels {
-      // Get the process config from the panel
-      let configState: ProcessConfigState? = panel.processConfig.map {
-        ProcessConfigState(
-          name: $0.name,
-          command: $0.command,
-          workingDirectory: $0.workingDirectory,
-          shell: $0.shell
-        )
-      }
-
-      let statusState: PanelStatusState
-      switch panel.status {
-      case .running:
-        statusState = .running
-      case .exitedNormally:
-        statusState = .exitedNormally
-      case .exitedWithError(let code):
-        statusState = .exitedWithError(code: code)
-      }
-
-      // Get the tmux handle ID for reconnection
-      let handleId = processes.values.first { $0.panelId == panel.id }?.handleId
-
-      panelStates.append(
-        PanelState(
-          id: panel.id,
-          title: panel.title,
-          processConfig: configState,
-          status: statusState,
-          handleId: handleId
-        ))
-    }
-
-    let layoutNode = rootNode.map { convertToLayoutNode($0) }
-
-    let state = AppState(
-      panels: panelStates,
-      layout: layoutNode,
-      lastWorkingDirectory: lastWorkingDirectory,
-      lastCommand: lastCommand
-    )
-
-    PersistenceManager.shared.saveState(state)
-  }
-
-  /// Restore state from disk
-  func restoreState() {
-    guard let state = PersistenceManager.shared.loadState() else {
-      return
-    }
-
-    lastWorkingDirectory = state.lastWorkingDirectory
-    lastCommand = state.lastCommand
-
-    // Restore panels
-    for panelState in state.panels {
-      let status: ProcessStatus
-      switch panelState.status {
-      case .running:
-        // Don't trust saved "running" status - will verify via reconnection
-        // Default to exited until we confirm process is still running
-        status = .exitedNormally
-      case .exitedNormally:
-        status = .exitedNormally
-      case .exitedWithError(let code):
-        status = .exitedWithError(code: code)
-      }
-
-      // Restore process config if available
-      var processConfig: ProcessConfig? = nil
-      if let configState = panelState.processConfig {
-        processConfig = ProcessConfig(
-          name: configState.name,
-          command: configState.command,
-          workingDirectory: configState.workingDirectory,
-          shell: configState.shell
-        )
-      }
-
-      // Load lines from database (controller responsibility)
-      let limit = SettingsManager.shared.maxLineHistory
-      let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
-      let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
-
-      let panel = Panel(
-        id: panelState.id,
-        title: panelState.title,
-        status: status,
-        lines: lines,
-        processConfig: processConfig,
-        tmuxHandleId: panelState.handleId
-      )
-
-      panels[panel.id] = panel
-    }
-
-    // Restore layout
-    if let layoutNode = state.layout {
-      rootNode = convertToTileNode(layoutNode)
-    }
-
-    // Reconnect to any surviving tmux sessions
-    reconnectToExistingProcesses()
-  }
-
-  /// Convert TileNode to LayoutNode for persistence
-  private func convertToLayoutNode(_ node: TileNode) -> LayoutNode {
-    switch node {
-    case .leaf(let id, let panelId):
-      return .leaf(id: id, panelId: panelId)
-    case .split(let id, let direction, let first, let second, let ratio):
-      let layoutDir: LayoutDirection = direction == .horizontal ? .horizontal : .vertical
-      return .split(
-        id: id,
-        direction: layoutDir,
-        first: convertToLayoutNode(first.value),
-        second: convertToLayoutNode(second.value),
-        ratio: ratio
-      )
-    }
-  }
+  // MARK: - Persistence (Legacy single-window support removed)
 
   /// Convert LayoutNode to TileNode after restore
   private func convertToTileNode(_ node: LayoutNode) -> TileNode {
@@ -888,21 +763,29 @@ class TilingState: ObservableObject {
         )
       }
 
-      // Load lines from database (controller responsibility)
-      let limit = SettingsManager.shared.maxLineHistory
-      let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
-      let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
-
+      // Load lines from database asynchronously
       let panel = Panel(
         id: panelState.id,
         title: panelState.title,
         status: status,
-        lines: lines,
+        lines: [], // Empty initially
         processConfig: processConfig,
         tmuxHandleId: panelState.handleId
       )
 
       panels[panel.id] = panel
+
+      // Kick off async load
+      Task.detached(priority: .userInitiated) { [weak panel] in
+        guard let panel = panel else { return }
+        let limit = await MainActor.run { SettingsManager.shared.maxLineHistory }
+        let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
+        let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
+
+        await MainActor.run {
+          panel.prependHistory(lines)
+        }
+      }
     }
 
     // Restore layout

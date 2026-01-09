@@ -1142,8 +1142,13 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     }
     // Auto-scroll if tailing is enabled and new lines arrived
     else if newCount != oldCount && isTailing {
-      DispatchQueue.main.async {
-        self.scrollToBottomIfNeeded(scrollView)
+      // If we went from 0 to N lines (initial async load), scroll IMMEDIATELY to avoid visual jump
+      if oldCount == 0 {
+        self.scrollToBottomIfNeeded(scrollView, measureFirst: true)
+      } else {
+        DispatchQueue.main.async {
+          self.scrollToBottomIfNeeded(scrollView)
+        }
       }
     }
   }

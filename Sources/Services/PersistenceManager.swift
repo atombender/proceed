@@ -29,11 +29,6 @@ class PersistenceManager {
     return urls[0].appendingPathComponent("Proceed", isDirectory: true)
   }
 
-  /// Path to state file
-  private var stateFilePath: URL {
-    appSupportDirectory.appendingPathComponent("state.json")
-  }
-
   /// Path to SQLite database
   private var databasePath: URL {
     appSupportDirectory.appendingPathComponent("logs.db")
@@ -337,34 +332,6 @@ class PersistenceManager {
 
   // MARK: - State Persistence
 
-  /// Save the current app state
-  func saveState(_ state: AppState) {
-    do {
-      let encoder = JSONEncoder()
-      encoder.outputFormatting = .prettyPrinted
-      let data = try encoder.encode(state)
-      try data.write(to: stateFilePath)
-    } catch {
-      print("Error saving state: \(error)")
-    }
-  }
-
-  /// Load the saved app state
-  func loadState() -> AppState? {
-    guard fileManager.fileExists(atPath: stateFilePath.path) else {
-      return nil
-    }
-
-    do {
-      let data = try Data(contentsOf: stateFilePath)
-      let decoder = JSONDecoder()
-      return try decoder.decode(AppState.self, from: data)
-    } catch {
-      print("Error loading state: \(error)")
-      return nil
-    }
-  }
-
   /// Clear all saved state and logs
   func clearAll() {
     try? fileManager.removeItem(at: appSupportDirectory)
@@ -553,24 +520,6 @@ enum AppTheme: String, Codable, CaseIterable, Identifiable {
   case auto
 
   var id: String { rawValue }
-}
-
-/// Complete app state for persistence
-struct AppState: Codable {
-  var panels: [PanelState]
-  var layout: LayoutNode?
-  var lastWorkingDirectory: String
-  var lastCommand: String
-
-  init(
-    panels: [PanelState] = [], layout: LayoutNode? = nil, lastWorkingDirectory: String = "",
-    lastCommand: String = ""
-  ) {
-    self.panels = panels
-    self.layout = layout
-    self.lastWorkingDirectory = lastWorkingDirectory
-    self.lastCommand = lastCommand
-  }
 }
 
 /// Persisted panel state

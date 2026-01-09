@@ -455,4 +455,18 @@ class Panel: ObservableObject, Identifiable, Equatable {
   func appendEvent(_ kind: LogEntryKind, message: String) {
     appendLine(message, kind: kind)
   }
+
+  /// Prepend history lines (loaded asynchronously)
+  /// Maintains existing lines that may have been added while history was loading
+  func prependHistory(_ historyLines: [OutputLine]) {
+    guard !historyLines.isEmpty else { return }
+
+    // Combine history with current lines
+    lines.insert(contentsOf: historyLines, at: 0)
+
+    // Trim buffer if needed (though unlikely to exceed limit on startup unless limit changed)
+    if lines.count > maxBufferLines {
+      lines.removeFirst(lines.count - maxBufferLines)
+    }
+  }
 }
