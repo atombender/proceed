@@ -455,10 +455,4 @@ class Panel: ObservableObject, Identifiable, Equatable {
   func appendEvent(_ kind: LogEntryKind, message: String) {
     appendLine(message, kind: kind)
   }
-
-  /// Load lines from persisted database (for restore)
-  func loadFromLog() {
-    let logEntries = PersistenceManager.shared.readLog(for: id, limit: maxBufferLines)
-    lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
-  }
 }

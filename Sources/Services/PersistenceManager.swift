@@ -83,6 +83,7 @@ class PersistenceManager {
       );
       CREATE INDEX IF NOT EXISTS idx_panel_id ON log_lines(panel_id);
       CREATE INDEX IF NOT EXISTS idx_panel_timestamp ON log_lines(panel_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_panel_id_desc ON log_lines(panel_id, id DESC);
 
       CREATE TABLE IF NOT EXISTS run_history (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -525,6 +526,7 @@ struct GlobalSettings: Codable {
   var autoDirenv: Bool
   var logRetentionSeconds: Int?  // nil means no limit
   var logRetentionUnit: RetentionUnit?  // for UI display purposes
+  var showMenuBarExtra: Bool?
 
   init(
     theme: AppTheme = .auto,
@@ -532,7 +534,8 @@ struct GlobalSettings: Codable {
     maxLineHistory: Int = 10000,
     autoDirenv: Bool = false,
     logRetentionSeconds: Int? = nil,
-    logRetentionUnit: RetentionUnit? = nil
+    logRetentionUnit: RetentionUnit? = nil,
+    showMenuBarExtra: Bool? = nil
   ) {
     self.theme = theme
     self.fontSize = fontSize
@@ -540,6 +543,7 @@ struct GlobalSettings: Codable {
     self.autoDirenv = autoDirenv
     self.logRetentionSeconds = logRetentionSeconds
     self.logRetentionUnit = logRetentionUnit
+    self.showMenuBarExtra = showMenuBarExtra
   }
 }
 

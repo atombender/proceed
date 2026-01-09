@@ -101,15 +101,20 @@ class TilingState: ObservableObject {
         )
       }
 
+      // Load lines from database (controller responsibility)
+      let limit = SettingsManager.shared.maxLineHistory
+      let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
+      let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
+
       let panel = Panel(
         id: panelState.id,
         title: panelState.title,
         status: status,
+        lines: lines,
         processConfig: processConfig,
         tmuxHandleId: panelState.handleId
       )
 
-      panel.loadFromLog()
       panels[panel.id] = panel
     }
 
@@ -787,16 +792,19 @@ class TilingState: ObservableObject {
         )
       }
 
+      // Load lines from database (controller responsibility)
+      let limit = SettingsManager.shared.maxLineHistory
+      let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
+      let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
+
       let panel = Panel(
         id: panelState.id,
         title: panelState.title,
         status: status,
+        lines: lines,
         processConfig: processConfig,
         tmuxHandleId: panelState.handleId
       )
-
-      // Load output from SQLite log
-      panel.loadFromLog()
 
       panels[panel.id] = panel
     }
@@ -880,16 +888,19 @@ class TilingState: ObservableObject {
         )
       }
 
+      // Load lines from database (controller responsibility)
+      let limit = SettingsManager.shared.maxLineHistory
+      let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
+      let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
+
       let panel = Panel(
         id: panelState.id,
         title: panelState.title,
         status: status,
+        lines: lines,
         processConfig: processConfig,
         tmuxHandleId: panelState.handleId
       )
-
-      // Load output from SQLite log
-      panel.loadFromLog()
 
       panels[panel.id] = panel
     }

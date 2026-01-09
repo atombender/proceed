@@ -117,6 +117,7 @@ final class LogContentView: NSView {
   var gutterWidth: CGFloat = 85
   var lineSpacing: CGFloat = 2
   var contentPadding: CGFloat = 4
+  var suppressDrawing: Bool = false  // Prevents drawing until initial scroll completes
 
   var font: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) {
     didSet { updateFontMetrics() }
@@ -205,6 +206,24 @@ final class LogContentView: NSView {
     updateFontMetrics()
   }
 
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    // Observe scroll events to force full redraws (prevents timestamp artifacts)
+    if let clipView = enclosingScrollView?.contentView {
+      NotificationCenter.default.addObserver(
+        self,
+        selector: #selector(scrollViewDidScroll(_:)),
+        name: NSView.boundsDidChangeNotification,
+        object: clipView
+      )
+    }
+  }
+
+  @objc private func scrollViewDidScroll(_ notification: Notification) {
+    // Force redraw of entire visible rect to prevent timestamp artifacts
+    setNeedsDisplay(visibleRect)
+  }
+
   override func viewDidMoveToSuperview() {
     super.viewDidMoveToSuperview()
     if let scrollView = enclosingScrollView {
@@ -250,6 +269,9 @@ final class LogContentView: NSView {
     }
     heightCache = heightCache.filter { newIds.contains($0.key) }
     cachedHeightSum = max(0, cachedHeightSum)  // Safety: ensure non-negative
+    
+    // Remove cached attributed strings for lines that no longer exist
+    attrStringCache = attrStringCache.filter { newIds.contains($0.key) }
 
     lines = newLines
     if heightChanged {
@@ -410,9 +432,37 @@ final class LogContentView: NSView {
     guard contentWidth > 0 else { return }
 
     for line in lines {
-      _ = measuredHeight(for: line, contentWidth: contentWidth)
+      // Use fast measurement if possible, falling back to slow measure for complex lines
+      if let fastHeight = fastMeasureHeight(for: line, contentWidth: contentWidth) {
+        // Manually cache the fast result
+        heightCache[line.id] = (contentWidth, fastHeight)
+        cachedHeightSum += fastHeight + lineSpacing
+      } else {
+        _ = measuredHeight(for: line, contentWidth: contentWidth)
+      }
     }
     recalculateTotalHeight()
+  }
+
+  /// Fast arithmetic measurement for simple lines (no wrapping, no special chars)
+  private func fastMeasureHeight(for line: OutputLine, contentWidth: CGFloat) -> CGFloat? {
+    // 1. Check strict length limit (including invisible ANSI codes)
+    // If raw length fits, the visual length (shorter due to ANSI) definitely fits
+    // UNLESS there are expanding non-printables
+    guard CGFloat(line.rawText.count) * charWidth <= contentWidth else { return nil }
+
+    // 2. Check for expanding control characters (ASCII < 32, except TAB/LF)
+    // These render as badges (e.g. [NUL]) which are wider than 1 char
+    for scalar in line.rawText.unicodeScalars {
+      let v = scalar.value
+      // Check for control chars that expand (exclude tab/newline which we handle or ignore)
+      if v < 32 && v != 9 && v != 10 {
+        return nil
+      }
+    }
+
+    // Safe to assume single line height
+    return lineHeight
   }
 
   func recalculateTotalHeight() {
@@ -453,6 +503,14 @@ final class LogContentView: NSView {
       return cached.height
     }
 
+    // Try fast measurement first
+    if let fastHeight = fastMeasureHeight(for: line, contentWidth: contentWidth) {
+      heightCache[line.id] = (contentWidth, fastHeight)
+      cachedHeightSum += fastHeight + lineSpacing
+      heightUpdatePending = true
+      return fastHeight
+    }
+
     // Measure
     let attrString = attributedString(for: line)
     guard attrString.length > 0, contentWidth > 0 else { return lineHeight }
@@ -475,6 +533,9 @@ final class LogContentView: NSView {
 
   override func draw(_ dirtyRect: NSRect) {
     guard let context = NSGraphicsContext.current?.cgContext else { return }
+
+    // Don't draw content until initial scroll completes
+    if suppressDrawing { return }
 
     // Background
     context.setFillColor(NSColor.textBackgroundColor.cgColor)
@@ -568,6 +629,11 @@ final class LogContentView: NSView {
   private func drawGutter(
     timestamp: String?, isLineSelected: Bool, at y: CGFloat, height: CGFloat, in context: CGContext
   ) {
+    // Always clear the gutter area for this line to prevent scroll artifacts
+    let gutterLineRect = CGRect(x: 0, y: y, width: gutterWidth, height: height + lineSpacing)
+    context.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.3).cgColor)
+    context.fill(gutterLineRect)
+
     // Highlight if line is selected
     if isLineSelected {
       context.setFillColor(NSColor.selectedTextBackgroundColor.withAlphaComponent(0.3).cgColor)
@@ -971,8 +1037,10 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     let contentView = LogContentView()
     contentView.font = font
     contentView.gutterWidth = gutterWidth
-    contentView.setLines(lines)
     contentView.onClicked = onClicked
+    // Don't set lines yet - wait until view is sized
+    // Suppress drawing until initial scroll completes
+    contentView.suppressDrawing = !lines.isEmpty
 
     scrollView.documentView = contentView
 
@@ -980,6 +1048,8 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     context.coordinator.documentView = contentView
     context.coordinator.scrollView = scrollView
     context.coordinator.isTailingBinding = _isTailing
+    context.coordinator.needsInitialScroll = !lines.isEmpty  // Flag for scroll when sized
+    context.coordinator.pendingLines = lines.isEmpty ? nil : lines  // Store for deferred population
 
     // Set up height change callback - re-scroll when tailing and height grows
     let coordinator = context.coordinator
@@ -1012,11 +1082,6 @@ struct LogContentViewRepresentable: NSViewRepresentable {
       object: scrollView.contentView
     )
 
-    // Scroll to bottom on initial load (measure all heights for accuracy)
-    DispatchQueue.main.async {
-      self.scrollToBottomIfNeeded(scrollView, measureFirst: true)
-    }
-
     return scrollView
   }
 
@@ -1028,6 +1093,11 @@ struct LogContentViewRepresentable: NSViewRepresentable {
 
     // Update coordinator's reference to isTailing binding
     context.coordinator.isTailingBinding = _isTailing
+
+    // Skip content updates while waiting for initial scroll - prevents visible scrolling
+    if context.coordinator.needsInitialScroll {
+      return
+    }
 
     let oldCount = contentView.lines.count
     let newCount = lines.count
@@ -1101,6 +1171,8 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     weak var documentView: LogContentView?
     weak var scrollView: NSScrollView?
     var isTailingBinding: Binding<Bool>?
+    var needsInitialScroll: Bool = false
+    var pendingLines: [OutputLine]?  // Lines waiting to be set after view is sized
     private var lastUserScrollTime: Date?
 
     func isAtBottom(_ scrollView: NSScrollView) -> Bool {
@@ -1130,12 +1202,37 @@ struct LogContentViewRepresentable: NSViewRepresentable {
 
     @objc func clipViewFrameChanged(_ notification: Notification) {
       guard let clipView = notification.object as? NSClipView,
-        let contentView = documentView
+        let contentView = documentView,
+        let scrollView = scrollView
       else { return }
       let newWidth = clipView.bounds.width
       if newWidth > 0 && abs(contentView.bounds.width - newWidth) > 0.5 {
         contentView.frame = NSRect(x: 0, y: 0, width: newWidth, height: contentView.frame.height)
         contentView.recalculateTotalHeight()
+        contentView.needsDisplay = true
+      }
+
+      // Perform deferred initial population and scroll once we have a valid size
+      if needsInitialScroll && clipView.bounds.height > 0 && clipView.bounds.width > 0 {
+        needsInitialScroll = false
+
+        // Now populate with lines (view is sized, so heights can be calculated properly)
+        if let lines = pendingLines {
+          pendingLines = nil
+          contentView.frame.size.width = clipView.bounds.width
+          contentView.setLines(lines)
+          // Force measurement of all lines to ensure accurate height for scrolling
+          // This prevents visual jumping/scrolling artifacts on initial load
+          contentView.measureAllHeights()
+        }
+
+        // Scroll to bottom
+        let maxY = contentView.frame.height - clipView.bounds.height
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, maxY)))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        // Now allow drawing - we're scrolled to the right position
+        contentView.suppressDrawing = false
         contentView.needsDisplay = true
       }
     }

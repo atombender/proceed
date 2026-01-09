@@ -1,5 +1,9 @@
 import SwiftUI
 
+extension Notification.Name {
+  static let menuBarExtraChanged = Notification.Name("menuBarExtraChanged")
+}
+
 class SettingsManager: ObservableObject {
   static let shared = SettingsManager()
 
@@ -41,6 +45,14 @@ class SettingsManager: ObservableObject {
     }
   }
 
+  /// Show menu bar extra icon
+  @Published var showMenuBarExtra: Bool = false {
+    didSet {
+      saveSettings()
+      NotificationCenter.default.post(name: .menuBarExtraChanged, object: nil)
+    }
+  }
+
   init() {
     loadSettings()
   }
@@ -53,6 +65,7 @@ class SettingsManager: ObservableObject {
       self.autoDirenv = settings.autoDirenv
       self.logRetentionSeconds = settings.logRetentionSeconds
       self.logRetentionUnit = settings.logRetentionUnit ?? .days
+      self.showMenuBarExtra = settings.showMenuBarExtra ?? false
     }
   }
 
@@ -63,7 +76,8 @@ class SettingsManager: ObservableObject {
       maxLineHistory: maxLineHistory,
       autoDirenv: autoDirenv,
       logRetentionSeconds: logRetentionSeconds,
-      logRetentionUnit: logRetentionUnit
+      logRetentionUnit: logRetentionUnit,
+      showMenuBarExtra: showMenuBarExtra
     )
     PersistenceManager.shared.saveSettings(settings)
   }

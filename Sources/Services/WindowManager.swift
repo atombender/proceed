@@ -206,6 +206,55 @@ class WindowManager: ObservableObject {
     lock.unlock()
   }
 
+  // MARK: - Menu Bar Support
+
+  /// Simple value-type snapshot for menu bar (no ObservableObject references)
+  struct PanelSnapshot {
+    let windowId: UUID
+    let panelId: UUID
+    let title: String
+    let isRunning: Bool
+  }
+
+  /// Get snapshots of all panels - returns pure value types to avoid reactive updates
+  /// All data is captured under lock to avoid accessing ObservableObjects during view updates
+  func allPanelSnapshots() -> [PanelSnapshot] {
+    lock.lock()
+    var result: [PanelSnapshot] = []
+    for (windowId, tilingState) in windowStates {
+      // Capture panel data while still holding lock
+      for (panelId, panel) in tilingState.panels {
+        result.append(PanelSnapshot(
+          windowId: windowId,
+          panelId: panelId,
+          title: panel.title,
+          isRunning: panel.status == .running
+        ))
+      }
+    }
+    lock.unlock()
+    return result.sorted { $0.title < $1.title }
+  }
+
+  /// Activate a window and focus a specific panel
+  func activateWindowAndFocusPanel(windowId: UUID, panelId: UUID) {
+    lock.lock()
+    let window = nsWindows[windowId]
+    let state = windowStates[windowId]
+    lock.unlock()
+
+    DispatchQueue.main.async {
+      // Activate the window
+      if let window = window {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+      }
+
+      // Focus the panel
+      state?.focusedPanelId = panelId
+    }
+  }
+
   // MARK: - Cross-Window Panel Transfer
 
   /// Find a panel by ID across all windows, returning the source TilingState if found

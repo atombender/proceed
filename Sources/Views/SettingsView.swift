@@ -52,6 +52,9 @@ struct GeneralSettingsView: View {
           "Automatically run commands with 'direnv exec .' when the working directory contains a .envrc file"
         )
 
+      Toggle("Show menu bar icon", isOn: $settingsManager.showMenuBarExtra)
+        .help("Show Proceed in the menu bar for quick access to panels")
+
       LabeledContent("Log Retention") {
         LogRetentionContent()
       }
