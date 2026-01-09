@@ -376,6 +376,7 @@ class Panel: ObservableObject, Identifiable, Equatable {
   @Published var title: String
   @Published var status: ProcessStatus
   @Published var lines: [OutputLine]
+  @Published var isLoadingHistory: Bool = false
   /// Max buffer lines - uses SettingsManager.shared.maxLineHistory
   var maxBufferLines: Int {
     SettingsManager.shared.maxLineHistory

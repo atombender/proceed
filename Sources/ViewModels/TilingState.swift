@@ -104,6 +104,7 @@ class TilingState: ObservableObject {
         processConfig: processConfig,
         tmuxHandleId: panelState.handleId
       )
+      panel.isLoadingHistory = true
 
       panels[panel.id] = panel
 
@@ -116,6 +117,7 @@ class TilingState: ObservableObject {
 
         await MainActor.run {
           panel.prependHistory(lines)
+          panel.isLoadingHistory = false
         }
       }
     }
@@ -772,6 +774,7 @@ class TilingState: ObservableObject {
         processConfig: processConfig,
         tmuxHandleId: panelState.handleId
       )
+      panel.isLoadingHistory = true
 
       panels[panel.id] = panel
 
@@ -784,6 +787,7 @@ class TilingState: ObservableObject {
 
         await MainActor.run {
           panel.prependHistory(lines)
+          panel.isLoadingHistory = false
         }
       }
     }

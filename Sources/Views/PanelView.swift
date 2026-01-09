@@ -253,16 +253,25 @@ struct PanelView: View {
   }
 
   private var contentArea: some View {
-    LogContentViewRepresentable(
-      lines: filteredLines,
-      font: NSFont.monospacedSystemFont(ofSize: settingsManager.fontSize, weight: .regular),
-      gutterWidth: 85,
-      onClicked: {
-        tilingState.focusedPanelId = panel.id
-      },
-      scrollToBottom: $scrollToBottomTrigger,
-      isTailing: $isTailing
-    )
+    ZStack {
+      LogContentViewRepresentable(
+        lines: filteredLines,
+        font: NSFont.monospacedSystemFont(ofSize: settingsManager.fontSize, weight: .regular),
+        gutterWidth: 85,
+        onClicked: {
+          tilingState.focusedPanelId = panel.id
+        },
+        scrollToBottom: $scrollToBottomTrigger,
+        isTailing: $isTailing
+      )
+
+      if panel.isLoadingHistory {
+        ProgressView()
+          .scaleEffect(0.8)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .background(Color(NSColor.textBackgroundColor).opacity(0.3))
+      }
+    }
     .allowsHitTesting(!isDraggingThisPanel)
     .onAppear {
       isTailing = true
