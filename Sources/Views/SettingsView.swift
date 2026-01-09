@@ -9,8 +9,164 @@ struct SettingsView: View {
         .tabItem {
           Label("General", systemImage: "gear")
         }
+      AutoReloadSettingsView()
+        .tabItem {
+          Label("Auto Reload", systemImage: "arrow.triangle.2.circlepath")
+        }
+      AutoRestartSettingsView()
+        .tabItem {
+          Label("Auto Restart", systemImage: "arrow.clockwise")
+        }
     }
-    .frame(width: 580, height: 340)
+    .frame(width: 580, height: 450)
+  }
+}
+
+struct AutoRestartSettingsView: View {
+  @EnvironmentObject var settingsManager: SettingsManager
+
+  var body: some View {
+    Form {
+      Section {
+        Toggle("Enable Auto Restart Globally", isOn: $settingsManager.autoRestartEnabled)
+        Text("Automatically restart processes that exit with a failure code.")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
+
+      Section("Backoff Configuration") {
+        LabeledContent("Initial Delay") {
+          HStack {
+            TextField("", value: $settingsManager.restartInitialDelay, format: .number)
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 60)
+            Text("seconds")
+              .foregroundColor(.secondary)
+          }
+        }
+        
+        LabeledContent("Max Delay") {
+          HStack {
+            TextField("", value: $settingsManager.restartMaxDelay, format: .number)
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 60)
+            Text("seconds")
+              .foregroundColor(.secondary)
+          }
+        }
+        
+        LabeledContent("Reset Interval") {
+          HStack {
+            TextField("", value: $settingsManager.restartResetTime, format: .number)
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 60)
+            Text("seconds")
+              .foregroundColor(.secondary)
+          }
+        }
+        Text("Time a process must run successfully to reset the backoff counter.")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
+    }
+    .padding()
+  }
+}
+
+struct AutoReloadSettingsView: View {
+  @EnvironmentObject var settingsManager: SettingsManager
+
+  var body: some View {
+    Form {
+      Section {
+        LabeledContent("Debounce Time") {
+          HStack {
+            TextField("", value: $settingsManager.autoReloadDebounce, format: .number)
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 60)
+            Text("seconds")
+              .foregroundColor(.secondary)
+          }
+        }
+        Text("Wait this long after file changes before restarting.")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
+
+      Spacer().frame(height: 10)
+
+      Section {
+        LabeledContent("Global Include Patterns:") {
+          StringListEditor(strings: $settingsManager.globalAutoReloadIncludes, placeholder: "")
+        }
+        Text("Default is all files if both lists are empty.")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
+
+      Spacer().frame(height: 10)
+
+      Section {
+        LabeledContent("Global Exclude Patterns:") {
+          StringListEditor(
+            strings: $settingsManager.globalAutoReloadExcludes, placeholder: "")
+        }
+        Text("Exclusions take precedence over inclusions.")
+          .font(.caption)
+          .foregroundColor(.secondary)
+      }
+    }
+    .padding()
+  }
+}
+
+struct StringListEditor: View {
+  @Binding var strings: [String]
+  let placeholder: String
+  @State private var newEntry: String = ""
+
+  var body: some View {
+    VStack(spacing: 6) {
+      List {
+        ForEach(Array(strings.enumerated()), id: \.offset) { index, str in
+          HStack {
+            Text(str)
+              .font(.system(.body, design: .monospaced))
+            Spacer()
+            Button(action: {
+              if index < strings.count {
+                strings.remove(at: index)
+              }
+            }) {
+              Image(systemName: "minus.circle.fill")
+                .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+      .frame(height: 100)
+      .border(Color.gray.opacity(0.2))
+      .background(Color(NSColor.controlBackgroundColor))
+
+      HStack {
+        TextField(placeholder, text: $newEntry)
+          .textFieldStyle(.roundedBorder)
+          .onSubmit(addEntry)
+
+        Button(action: addEntry) {
+          Image(systemName: "plus")
+        }
+        .disabled(newEntry.isEmpty)
+      }
+    }
+  }
+
+  private func addEntry() {
+    let trimmed = newEntry.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { return }
+    strings.append(trimmed)
+    newEntry = ""
   }
 }
 

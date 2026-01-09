@@ -106,7 +106,10 @@ class WindowManager: ObservableObject {
             name: $0.name,
             command: $0.command,
             workingDirectory: $0.workingDirectory,
-            shell: $0.shell
+            shell: $0.shell,
+            autoReloadEnabled: $0.autoReloadEnabled,
+            autoReloadIncludes: $0.autoReloadIncludes,
+            autoReloadExcludes: $0.autoReloadExcludes
           )
         }
 
@@ -118,6 +121,9 @@ class WindowManager: ObservableObject {
           statusState = .exitedNormally
         case .exitedWithError(let code):
           statusState = .exitedWithError(code: code)
+        case .restarting:
+          // Treat restarting as exited for persistence (transient state)
+          statusState = .exitedNormally
         }
 
         let handleId = panel.tmuxHandleId
@@ -152,6 +158,7 @@ class WindowManager: ObservableObject {
     }
 
     let multiWindowState = MultiWindowState(windows: allWindowStates)
+    print("WindowManager: Saving \(allWindowStates.count) windows to persistence")
     PersistenceManager.shared.saveMultiWindowState(multiWindowState)
   }
 

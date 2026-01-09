@@ -311,6 +311,8 @@ final class LogContentView: NSView {
   }
 
   private func buildAttributedString(for line: OutputLine) -> NSAttributedString {
+    let isLightMode = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+
     // Meta lines (started, stopped, etc.) get special styling
     if line.isMeta {
       let italicFont = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
@@ -342,7 +344,13 @@ final class LogContentView: NSView {
         var attrs: [NSAttributedString.Key: Any] = [.font: font]
 
         if let fg = style.foreground {
-          attrs[.foregroundColor] = NSColor(fg)
+          var color = NSColor(fg)
+          // In light mode, standard ANSI bright colors (yellow, cyan, etc.) are often illegible
+          // Darken them significantly to ensure contrast
+          if isLightMode {
+             color = color.blended(withFraction: 0.3, of: .black) ?? color
+          }
+          attrs[.foregroundColor] = color
         } else {
           attrs[.foregroundColor] = NSColor.labelColor
         }
@@ -434,14 +442,22 @@ final class LogContentView: NSView {
     for line in lines {
       // Use fast measurement if possible, falling back to slow measure for complex lines
       if let fastHeight = fastMeasureHeight(for: line, contentWidth: contentWidth) {
-        // Manually cache the fast result
-        heightCache[line.id] = (contentWidth, fastHeight)
-        cachedHeightSum += fastHeight + lineSpacing
+        updateCache(for: line.id, width: contentWidth, height: fastHeight)
       } else {
         _ = measuredHeight(for: line, contentWidth: contentWidth)
       }
     }
     recalculateTotalHeight()
+  }
+
+  /// Update the height cache for a line, handling subtraction of old value to prevent drift
+  private func updateCache(for lineId: UUID, width: CGFloat, height: CGFloat) {
+    if let old = heightCache[lineId] {
+      cachedHeightSum -= old.height + lineSpacing
+    }
+    heightCache[lineId] = (width, height)
+    cachedHeightSum += height + lineSpacing
+    heightUpdatePending = true
   }
 
   /// Fast arithmetic measurement for simple lines (no wrapping, no special chars)
@@ -505,9 +521,7 @@ final class LogContentView: NSView {
 
     // Try fast measurement first
     if let fastHeight = fastMeasureHeight(for: line, contentWidth: contentWidth) {
-      heightCache[line.id] = (contentWidth, fastHeight)
-      cachedHeightSum += fastHeight + lineSpacing
-      heightUpdatePending = true
+      updateCache(for: line.id, width: contentWidth, height: fastHeight)
       return fastHeight
     }
 
@@ -521,9 +535,7 @@ final class LogContentView: NSView {
     let height = max(lineHeight, ceil(rect.height))
 
     // Cache result and update running sum
-    heightCache[line.id] = (contentWidth, height)
-    cachedHeightSum += height + lineSpacing
-    heightUpdatePending = true  // Signal that total height may need updating
+    updateCache(for: line.id, width: contentWidth, height: height)
     return height
   }
 
@@ -569,6 +581,11 @@ final class LogContentView: NSView {
       let attrString = attributedString(for: line)
       let lineBounds = CGRect(x: contentX, y: y, width: contentWidth, height: height)
 
+      // Draw meta background
+      if line.isMeta {
+        drawMetaBackground(at: y, height: height, in: context)
+      }
+
       // Draw selection background
       drawSelectionBackground(for: lineIndex, bounds: lineBounds, in: context)
 
@@ -579,6 +596,7 @@ final class LogContentView: NSView {
       drawGutter(
         timestamp: showTimestamp ? timestamp : nil,
         isLineSelected: selectedLineIndices.contains(lineIndex),
+        isMeta: line.isMeta,
         at: y,
         height: height,
         in: context)
@@ -627,12 +645,15 @@ final class LogContentView: NSView {
   }
 
   private func drawGutter(
-    timestamp: String?, isLineSelected: Bool, at y: CGFloat, height: CGFloat, in context: CGContext
+    timestamp: String?, isLineSelected: Bool, isMeta: Bool, at y: CGFloat, height: CGFloat, in context: CGContext
   ) {
     // Always clear the gutter area for this line to prevent scroll artifacts
-    let gutterLineRect = CGRect(x: 0, y: y, width: gutterWidth, height: height + lineSpacing)
-    context.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.3).cgColor)
-    context.fill(gutterLineRect)
+    // Skip if it's a meta line as it has its own prominent background
+    if !isMeta {
+      let gutterLineRect = CGRect(x: 0, y: y, width: gutterWidth, height: height + lineSpacing)
+      context.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.3).cgColor)
+      context.fill(gutterLineRect)
+    }
 
     // Highlight if line is selected
     if isLineSelected {
@@ -655,6 +676,15 @@ final class LogContentView: NSView {
     let textY = y + (height - size.height) / 2
 
     attrString.draw(at: NSPoint(x: x, y: textY))
+  }
+
+  private func drawMetaBackground(at y: CGFloat, height: CGFloat, in context: CGContext) {
+    // Subtle background for meta lines - extends across full width including timestamp
+    context.setFillColor(NSColor.labelColor.withAlphaComponent(0.06).cgColor)
+    let rect = CGRect(
+      x: 0, y: y,
+      width: self.bounds.width, height: height + lineSpacing)
+    context.fill(rect)
   }
 
   private func drawSelectionBackground(

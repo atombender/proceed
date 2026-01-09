@@ -418,6 +418,7 @@ class PersistenceManager {
       let tempPath = multiWindowStateFilePath.appendingPathExtension("tmp")
       try data.write(to: tempPath)
       _ = try fileManager.replaceItemAt(multiWindowStateFilePath, withItemAt: tempPath)
+      print("PersistenceManager: Saved multi-window state to \(multiWindowStateFilePath.path)")
     } catch {
       print("Error saving multi-window state: \(error)")
     }
@@ -432,7 +433,9 @@ class PersistenceManager {
     do {
       let data = try Data(contentsOf: multiWindowStateFilePath)
       let decoder = JSONDecoder()
-      return try decoder.decode(MultiWindowState.self, from: data)
+      let state = try decoder.decode(MultiWindowState.self, from: data)
+      print("PersistenceManager: Loaded multi-window state with \(state.windows.count) windows")
+      return state
     } catch {
       print("Error loading multi-window state: \(error)")
       return nil
@@ -549,6 +552,15 @@ struct GlobalSettings: Codable {
   var logRetentionSeconds: Int?  // nil means no limit
   var logRetentionUnit: RetentionUnit?  // for UI display purposes
   var showMenuBarExtra: Bool?
+  var autoReloadDebounce: TimeInterval?
+  var globalAutoReloadIncludes: [String]?
+  var globalAutoReloadExcludes: [String]?
+  
+  // Auto Restart
+  var autoRestartEnabled: Bool?
+  var restartInitialDelay: TimeInterval?
+  var restartMaxDelay: TimeInterval?
+  var restartResetTime: TimeInterval?
 
   init(
     theme: AppTheme = .auto,
@@ -557,7 +569,17 @@ struct GlobalSettings: Codable {
     autoDirenv: Bool = false,
     logRetentionSeconds: Int? = nil,
     logRetentionUnit: RetentionUnit? = nil,
-    showMenuBarExtra: Bool? = nil
+    showMenuBarExtra: Bool? = nil,
+    autoReloadDebounce: TimeInterval? = 0.5,
+    globalAutoReloadIncludes: [String]? = [],
+    globalAutoReloadExcludes: [String]? = [
+      "node_modules/**", "*.log", ".git/**", "*.pyc", "__pycache__/**", "*.o", "*.class", "dist/**",
+      "build/**",
+    ],
+    autoRestartEnabled: Bool? = false,
+    restartInitialDelay: TimeInterval? = 0.5,
+    restartMaxDelay: TimeInterval? = 10.0,
+    restartResetTime: TimeInterval? = 5.0
   ) {
     self.theme = theme
     self.fontSize = fontSize
@@ -566,6 +588,13 @@ struct GlobalSettings: Codable {
     self.logRetentionSeconds = logRetentionSeconds
     self.logRetentionUnit = logRetentionUnit
     self.showMenuBarExtra = showMenuBarExtra
+    self.autoReloadDebounce = autoReloadDebounce
+    self.globalAutoReloadIncludes = globalAutoReloadIncludes
+    self.globalAutoReloadExcludes = globalAutoReloadExcludes
+    self.autoRestartEnabled = autoRestartEnabled
+    self.restartInitialDelay = restartInitialDelay
+    self.restartMaxDelay = restartMaxDelay
+    self.restartResetTime = restartResetTime
   }
 }
 
@@ -592,6 +621,9 @@ struct ProcessConfigState: Codable {
   var command: String
   var workingDirectory: String
   var shell: String
+  var autoReloadEnabled: Bool?
+  var autoReloadIncludes: [String]?
+  var autoReloadExcludes: [String]?
 }
 
 /// Persisted panel status

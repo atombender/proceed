@@ -90,8 +90,16 @@ class TilingState: ObservableObject {
           name: configState.name,
           command: configState.command,
           workingDirectory: configState.workingDirectory,
-          shell: configState.shell
+          shell: configState.shell,
+          autoReloadEnabled: configState.autoReloadEnabled ?? false,
+          autoReloadIncludes: configState.autoReloadIncludes ?? [],
+          autoReloadExcludes: configState.autoReloadExcludes ?? []
         )
+        if processConfig?.autoReloadEnabled == true {
+            print("TilingState: Restored auto-reload ENABLED for \(configState.name)")
+        } else {
+            print("TilingState: Restored auto-reload DISABLED for \(configState.name)")
+        }
       }
 
       // Load lines from database asynchronously
@@ -187,7 +195,13 @@ class TilingState: ObservableObject {
     panels[panel.id] = panel
 
     // Create and start the process using the backend
-    let runningProcess = RunningProcess(config: config, panel: panel)
+    let runningProcess = RunningProcess(
+        config: config,
+        panel: panel,
+        onReloadRequest: { [weak self] in
+            self?.reloadProcess(forPanelId: panel.id)
+        }
+    )
     processes[config.id] = runningProcess
 
     // Add panel to the tiling layout
@@ -365,14 +379,23 @@ class TilingState: ObservableObject {
       name: oldConfig.name,
       command: oldConfig.command,
       workingDirectory: oldConfig.workingDirectory,
-      shell: oldConfig.shell
+      shell: oldConfig.shell,
+      autoReloadEnabled: oldConfig.autoReloadEnabled,
+      autoReloadIncludes: oldConfig.autoReloadIncludes,
+      autoReloadExcludes: oldConfig.autoReloadExcludes
     )
 
     // Update panel's config reference
     panel.processConfig = newConfig
 
     // Create and start new process, reusing the existing panel
-    let runningProcess = RunningProcess(config: newConfig, panel: panel)
+    let runningProcess = RunningProcess(
+        config: newConfig,
+        panel: panel,
+        onReloadRequest: { [weak self] in
+            self?.reloadProcess(forPanelId: panel.id)
+        }
+    )
     processes[newConfig.id] = runningProcess
 
     // Start the process, killing orphan first if needed
@@ -486,7 +509,13 @@ class TilingState: ObservableObject {
             )
 
             // Create and start new process
-            let runningProcess = RunningProcess(config: newConfig, panel: panel)
+            let runningProcess = RunningProcess(
+                config: newConfig,
+                panel: panel,
+                onReloadRequest: { [weak self] in
+                    self?.reloadProcess(forPanelId: panel.id)
+                }
+            )
             processes[newConfig.id] = runningProcess
             runningProcess.start(using: backend)
           }
@@ -502,6 +531,12 @@ class TilingState: ObservableObject {
       // Only name changed - just update the panel title
       panel.processConfig = newConfig
       panel.title = newConfig.displayName
+      
+      // Update running process config (e.g. for auto-reload settings)
+      if let process = processes.values.first(where: { $0.panelId == panelId }) {
+          process.updateConfig(newConfig)
+      }
+      
       WindowManager.shared.scheduleSave()
     }
   }
@@ -531,8 +566,18 @@ class TilingState: ObservableObject {
               let runningProcess = RunningProcess(
                 handle: handle,
                 panel: panel,
-                isCurrentlyRunning: isRunning
+                isCurrentlyRunning: isRunning,
+                onReloadRequest: { [weak self] in
+                    self?.reloadProcess(forPanelId: panel.id)
+                }
               )
+              
+              // Ensure process uses the persisted configuration (e.g. auto-reload settings)
+              // rather than the potentially stale configuration from the tmux backend metadata
+              if let panelConfig = panel.processConfig {
+                  runningProcess.config = panelConfig
+              }
+              
               processes[handle.config.id] = runningProcess
 
               if isRunning {
@@ -761,7 +806,10 @@ class TilingState: ObservableObject {
           name: configState.name,
           command: configState.command,
           workingDirectory: configState.workingDirectory,
-          shell: configState.shell
+          shell: configState.shell,
+          autoReloadEnabled: configState.autoReloadEnabled ?? false,
+          autoReloadIncludes: configState.autoReloadIncludes ?? [],
+          autoReloadExcludes: configState.autoReloadExcludes ?? []
         )
       }
 

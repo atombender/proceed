@@ -9,6 +9,11 @@ struct RunProcessDialog: View {
   @State private var workingDirectory: String = ""
   @State private var shell: String = ProcessConfig.defaultShell
   @State private var recentRuns: [PersistenceManager.RunHistoryEntry] = []
+  
+  // Auto Reload state
+  @State private var autoReloadEnabled: Bool = false
+  @State private var autoReloadIncludes: [String] = []
+  @State private var autoReloadExcludes: [String] = []
 
   /// The panel being edited (nil for new process)
   private var editingPanel: Panel? {
@@ -78,6 +83,18 @@ struct RunProcessDialog: View {
 
         TextField("Shell:", text: $shell)
           .textFieldStyle(.roundedBorder)
+          
+        Section("Auto Reload") {
+          Toggle("Enable Auto Reload", isOn: $autoReloadEnabled)
+          
+          LabeledContent("Include Patterns (Glob):") {
+            StringListEditor(strings: $autoReloadIncludes, placeholder: "")
+          }
+          
+          LabeledContent("Exclude Patterns (Glob):") {
+            StringListEditor(strings: $autoReloadExcludes, placeholder: "")
+          }
+        }
       }
       .padding()
 
@@ -105,7 +122,7 @@ struct RunProcessDialog: View {
       }
       .padding()
     }
-    .frame(width: 500)
+    .frame(width: 500, height: 600)
     .onAppear {
       if let panel = editingPanel, let config = panel.processConfig {
         // Editing mode - populate from existing config
@@ -113,6 +130,10 @@ struct RunProcessDialog: View {
         command = config.command
         workingDirectory = config.workingDirectory
         shell = config.shell
+        autoReloadEnabled = config.autoReloadEnabled
+        autoReloadIncludes = config.autoReloadIncludes
+        autoReloadExcludes = config.autoReloadExcludes
+        print("RunProcessDialog: Editing panel. AutoReloadEnabled: \(autoReloadEnabled)")
       } else {
         // New process mode - use last values and load recent runs
         workingDirectory = tilingState.lastWorkingDirectory
@@ -143,6 +164,7 @@ struct RunProcessDialog: View {
     command = entry.command
     workingDirectory = entry.workingDirectory
     shell = entry.shell
+    // Recent runs don't store auto-reload config currently
   }
 
   private func browseDirectory() {
@@ -162,7 +184,10 @@ struct RunProcessDialog: View {
       name: name,
       command: command,
       workingDirectory: workingDirectory,
-      shell: shell
+      shell: shell,
+      autoReloadEnabled: autoReloadEnabled,
+      autoReloadIncludes: autoReloadIncludes,
+      autoReloadExcludes: autoReloadExcludes
     )
 
     tilingState.runProcess(config: config)
@@ -176,7 +201,10 @@ struct RunProcessDialog: View {
       name: name,
       command: command,
       workingDirectory: workingDirectory,
-      shell: shell
+      shell: shell,
+      autoReloadEnabled: autoReloadEnabled,
+      autoReloadIncludes: autoReloadIncludes,
+      autoReloadExcludes: autoReloadExcludes
     )
 
     tilingState.updateProcess(forPanelId: panelId, newConfig: newConfig)

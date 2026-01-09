@@ -6,6 +6,7 @@ enum ProcessStatus: Equatable {
   case running
   case exitedNormally
   case exitedWithError(code: Int32)
+  case restarting(target: Date)
 
   var color: Color {
     switch self {
@@ -15,6 +16,8 @@ enum ProcessStatus: Equatable {
       return .gray
     case .exitedWithError:
       return .red
+    case .restarting:
+      return .orange
     }
   }
 }

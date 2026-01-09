@@ -110,6 +110,15 @@ struct PanelView: View {
 
   /// Formatted duration string (e.g., "1h32m5s", "32m5s", "5s")
   private var formattedDuration: String? {
+    if case .restarting(let target) = panel.status {
+      let remaining = target.timeIntervalSince(currentTime)
+      if remaining > 0 {
+        return "Restarting in \(Int(ceil(remaining)))s"
+      } else {
+        return "Restarting..."
+      }
+    }
+  
     guard let startedAt = panel.startedAt else { return nil }
 
     let endTime = panel.stoppedAt ?? currentTime
@@ -163,6 +172,18 @@ struct PanelView: View {
 
       // Right-aligned action buttons
       HStack(spacing: 6) {
+        // Auto-reload indicator
+        if panel.processConfig?.autoReloadEnabled == true {
+          Text("Auto Reload")
+            .font(.system(size: 9, weight: .medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.green.opacity(0.2))
+            .foregroundColor(.green)
+            .cornerRadius(4)
+            .help("Auto reload is enabled")
+        }
+
         // Tail indicator - shows autoscroll state, click to jump to bottom
         TitleBarButton(
           icon: "arrow.down.to.line",
