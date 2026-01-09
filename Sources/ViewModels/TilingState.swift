@@ -112,7 +112,7 @@ class TilingState: ObservableObject {
       Task.detached(priority: .userInitiated) { [weak panel] in
         guard let panel = panel else { return }
         let limit = await MainActor.run { SettingsManager.shared.maxLineHistory }
-        let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
+        let logEntries = await PersistenceManager.shared.readLogAsync(for: panelState.id, limit: limit)
         let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
 
         await MainActor.run {
@@ -782,7 +782,7 @@ class TilingState: ObservableObject {
       Task.detached(priority: .userInitiated) { [weak panel] in
         guard let panel = panel else { return }
         let limit = await MainActor.run { SettingsManager.shared.maxLineHistory }
-        let logEntries = PersistenceManager.shared.readLog(for: panelState.id, limit: limit)
+        let logEntries = await PersistenceManager.shared.readLogAsync(for: panelState.id, limit: limit)
         let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
 
         await MainActor.run {

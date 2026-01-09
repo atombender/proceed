@@ -188,7 +188,8 @@ class PersistenceManager {
   func readLog(for panelId: UUID, limit: Int = 10000) -> [(
     text: String, timestamp: Date, kind: LogEntryKind
   )] {
-    dbQueue.sync { [weak self] () -> [(text: String, timestamp: Date, kind: LogEntryKind)] in
+    let start = Date()
+    return dbQueue.sync { [weak self] () -> [(text: String, timestamp: Date, kind: LogEntryKind)] in
       guard let self = self, let db = self.db else { return [] }
 
       var results: [(text: String, timestamp: Date, kind: LogEntryKind)] = []
@@ -221,8 +222,62 @@ class PersistenceManager {
       }
       sqlite3_finalize(stmt)
 
+      let duration = Date().timeIntervalSince(start)
+      if duration > 0.1 {
+        print("PersistenceManager: Read \(results.count) lines for \(panelId) in \(String(format: "%.3f", duration))s")
+      }
+
       return results
     }
+  }
+
+  /// Read log lines asynchronously using a transient read-only connection
+  /// This allows multiple panels to load in parallel, bypassing the serial dbQueue
+  func readLogAsync(for panelId: UUID, limit: Int = 10000) async -> [(
+    text: String, timestamp: Date, kind: LogEntryKind
+  )] {
+    let path = databasePath.path
+    var localDb: OpaquePointer?
+
+    // Open a new read-only connection for this operation
+    if sqlite3_open_v2(path, &localDb, SQLITE_OPEN_READONLY, nil) != SQLITE_OK {
+      print("Error opening local database connection: \(String(cString: sqlite3_errmsg(localDb)))")
+      return []
+    }
+    defer { sqlite3_close(localDb) }
+
+    // Enable WAL mode implies we can read while writing, but we don't need to set PRAGMA here
+    // as it's a property of the database file itself (persistent journal mode).
+
+    var results: [(text: String, timestamp: Date, kind: LogEntryKind)] = []
+    let sql = """
+      SELECT text, timestamp, kind FROM (
+          SELECT text, timestamp, kind FROM log_lines
+          WHERE panel_id = ?
+          ORDER BY id DESC
+          LIMIT ?
+      ) ORDER BY timestamp ASC
+      """
+    var stmt: OpaquePointer?
+
+    if sqlite3_prepare_v2(localDb, sql, -1, &stmt, nil) == SQLITE_OK {
+      sqlite3_bind_text(
+        stmt, 1, panelId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+      sqlite3_bind_int(stmt, 2, Int32(limit))
+
+      while sqlite3_step(stmt) == SQLITE_ROW {
+        if let textPtr = sqlite3_column_text(stmt, 0) {
+          let text = String(cString: textPtr)
+          let timestamp = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1))
+          let kindRaw = sqlite3_column_int(stmt, 2)
+          let kind = LogEntryKind(rawValue: Int(kindRaw)) ?? .output
+          results.append((text: text, timestamp: timestamp, kind: kind))
+        }
+      }
+    }
+    sqlite3_finalize(stmt)
+
+    return results
   }
 
   /// Delete all log entries for a panel
