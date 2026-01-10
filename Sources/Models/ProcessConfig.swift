@@ -27,6 +27,7 @@ struct ProcessConfig: Identifiable, Equatable {
   var autoReloadIncludes: [String]
   var autoReloadExcludes: [String]
   var autoRestart: AutoRestartMode
+  var outputExcludeFilters: [String]
 
   init(
     id: UUID = UUID(),
@@ -37,7 +38,8 @@ struct ProcessConfig: Identifiable, Equatable {
     autoReloadEnabled: Bool = false,
     autoReloadIncludes: [String] = [],
     autoReloadExcludes: [String] = [],
-    autoRestart: AutoRestartMode = .auto
+    autoRestart: AutoRestartMode = .auto,
+    outputExcludeFilters: [String] = []
   ) {
     self.id = id
     self.name = name
@@ -48,6 +50,7 @@ struct ProcessConfig: Identifiable, Equatable {
     self.autoReloadIncludes = autoReloadIncludes
     self.autoReloadExcludes = autoReloadExcludes
     self.autoRestart = autoRestart
+    self.outputExcludeFilters = outputExcludeFilters
   }
 
   /// Display name for the panel title bar

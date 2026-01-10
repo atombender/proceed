@@ -15,6 +15,9 @@ struct RunProcessDialog: View {
   @State private var autoReloadIncludes: [String] = []
   @State private var autoReloadExcludes: [String] = []
 
+  // Output filters state
+  @State private var outputExcludeFilters: [String] = []
+
   /// The panel being edited (nil for new process)
   private var editingPanel: Panel? {
     guard let panelId = tilingState.editingPanelId else { return nil }
@@ -86,13 +89,19 @@ struct RunProcessDialog: View {
           
         Section("Auto Reload") {
           Toggle("Enable Auto Reload", isOn: $autoReloadEnabled)
-          
+
           LabeledContent("Include Patterns (Glob):") {
             StringListEditor(strings: $autoReloadIncludes, placeholder: "")
           }
-          
+
           LabeledContent("Exclude Patterns (Glob):") {
             StringListEditor(strings: $autoReloadExcludes, placeholder: "")
+          }
+        }
+
+        Section("Output Filters") {
+          LabeledContent("Exclude Patterns (Regex):") {
+            StringListEditor(strings: $outputExcludeFilters, placeholder: "e.g. ^DEBUG:")
           }
         }
       }
@@ -133,6 +142,7 @@ struct RunProcessDialog: View {
         autoReloadEnabled = config.autoReloadEnabled
         autoReloadIncludes = config.autoReloadIncludes
         autoReloadExcludes = config.autoReloadExcludes
+        outputExcludeFilters = config.outputExcludeFilters
         print("RunProcessDialog: Editing panel. AutoReloadEnabled: \(autoReloadEnabled)")
       } else {
         // New process mode - use last values and load recent runs
@@ -187,7 +197,8 @@ struct RunProcessDialog: View {
       shell: shell,
       autoReloadEnabled: autoReloadEnabled,
       autoReloadIncludes: autoReloadIncludes,
-      autoReloadExcludes: autoReloadExcludes
+      autoReloadExcludes: autoReloadExcludes,
+      outputExcludeFilters: outputExcludeFilters
     )
 
     tilingState.runProcess(config: config)
@@ -204,7 +215,8 @@ struct RunProcessDialog: View {
       shell: shell,
       autoReloadEnabled: autoReloadEnabled,
       autoReloadIncludes: autoReloadIncludes,
-      autoReloadExcludes: autoReloadExcludes
+      autoReloadExcludes: autoReloadExcludes,
+      outputExcludeFilters: outputExcludeFilters
     )
 
     tilingState.updateProcess(forPanelId: panelId, newConfig: newConfig)

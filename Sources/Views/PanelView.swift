@@ -60,26 +60,40 @@ struct PanelView: View {
 
   // MARK: - Filtered Lines
 
-  /// Lines filtered by the current regex, or all lines if no filter
+  /// Lines filtered by the current search regex and exclusion filters
   private var filteredLines: [OutputLine] {
+    var lines = panel.lines
+
+    // Apply search filter if present
     let pattern = debouncedFilterText.trimmingCharacters(in: .whitespaces)
-
-    // Empty or ".*" means no filter
-    guard !pattern.isEmpty, pattern != ".*" else {
-      return panel.lines
+    if !pattern.isEmpty && pattern != ".*" {
+      if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
+        lines = lines.filter { line in
+          let text = line.rawText
+          let range = NSRange(text.startIndex..., in: text)
+          return regex.firstMatch(in: text, options: [], range: range) != nil
+        }
+      }
     }
 
-    // Try to compile the regex (case insensitive)
-    guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
-      // Invalid regex - show all lines
-      return panel.lines
+    // Apply per-process exclusion filters
+    if let excludePatterns = panel.processConfig?.outputExcludeFilters, !excludePatterns.isEmpty {
+      let excludeRegexes = excludePatterns.compactMap { pattern in
+        try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+      }
+      if !excludeRegexes.isEmpty {
+        lines = lines.filter { line in
+          let text = line.rawText
+          let range = NSRange(text.startIndex..., in: text)
+          // Keep line only if NO exclusion pattern matches
+          return !excludeRegexes.contains { regex in
+            regex.firstMatch(in: text, options: [], range: range) != nil
+          }
+        }
+      }
     }
 
-    return panel.lines.filter { line in
-      let text = line.rawText
-      let range = NSRange(text.startIndex..., in: text)
-      return regex.firstMatch(in: text, options: [], range: range) != nil
-    }
+    return lines
   }
 
   private var isDraggingThisPanel: Bool {
