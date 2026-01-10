@@ -131,7 +131,8 @@ struct RunProcessDialog: View {
       }
       .padding()
     }
-    .frame(width: 500, height: 600)
+    .frame(minWidth: 500, idealWidth: 550, maxWidth: 700, minHeight: 500)
+    .fixedSize(horizontal: false, vertical: true)
     .onAppear {
       if let panel = editingPanel, let config = panel.processConfig {
         // Editing mode - populate from existing config
