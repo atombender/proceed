@@ -344,22 +344,34 @@ class RunningProcess: ObservableObject, Identifiable {
   /// Terminate the process
   func terminate(using backend: TmuxBackend) {
     guard let handle = handle else { return }
-    
+
     // Stop monitoring immediately to prevent further reload triggers during shutdown
     fileMonitor?.stop()
     fileMonitor = nil
     resetBackoffTask?.cancel()
-    
+
     Task {
       try? await backend.stop(handle: handle)
-      
-      // Manually update status to unblock reload logic
-      await MainActor.run {
-        self.isRunning = false
-        self.panel?.status = .exitedNormally
-        self.panel?.stoppedAt = Date()
-        if self.panel?.lines.last?.kind != .stopped {
-            self.panel?.appendEvent(.stopped, message: "Process stopped")
+
+      // Poll to verify the process actually stopped (max 5 seconds)
+      var stopped = false
+      for _ in 0..<50 {
+        if await !backend.isRunning(handle: handle) {
+          stopped = true
+          break
+        }
+        try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
+      }
+
+      // Only update status if actually stopped
+      if stopped {
+        await MainActor.run {
+          self.isRunning = false
+          self.panel?.status = .exitedNormally
+          self.panel?.stoppedAt = Date()
+          if self.panel?.lines.last?.kind != .stopped {
+              self.panel?.appendEvent(.stopped, message: "Process stopped")
+          }
         }
       }
     }
