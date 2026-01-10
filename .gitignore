@@ -16,3 +16,12 @@ xcuserdata
 .build/
 .swiftpm/
 build/
+
+# Swift build artifacts (shouldn't be in project root)
+*.d
+*.dia
+*.o
+*.swiftconstvalues
+*.swiftdeps
+*.swiftmodule
+*.swiftsourceinfo
