@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import os.log
 
 /// Types of log entries
 enum LogEntryKind: Int {
@@ -51,7 +52,7 @@ class PersistenceManager {
     do {
       try fileManager.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
     } catch {
-      print("Error creating app directories: \(error)")
+      os_log("Error creating app directories: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
     }
   }
 
@@ -59,7 +60,7 @@ class PersistenceManager {
   private func openDatabase() {
     let path = databasePath.path
     if sqlite3_open(path, &db) != SQLITE_OK {
-      print("Error opening database: \(String(cString: sqlite3_errmsg(db)))")
+      os_log("Error opening database: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
     }
 
     // Enable WAL mode for better concurrent performance
@@ -92,7 +93,7 @@ class PersistenceManager {
       """
 
     if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
-      print("Error creating tables: \(String(cString: sqlite3_errmsg(db)))")
+      os_log("Error creating tables: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
     }
 
     // Migration: add kind column if it doesn't exist
@@ -135,7 +136,7 @@ class PersistenceManager {
         sqlite3_bind_int(stmt, 4, kindVal)
 
         if sqlite3_step(stmt) != SQLITE_DONE {
-          print("Error inserting log line: \(String(cString: sqlite3_errmsg(db)))")
+          os_log("Error inserting log line: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
         }
       }
       sqlite3_finalize(stmt)
@@ -172,7 +173,7 @@ class PersistenceManager {
           sqlite3_bind_int(stmt, 4, kindVal)
 
           if sqlite3_step(stmt) != SQLITE_DONE {
-            print("Error inserting log line: \(String(cString: sqlite3_errmsg(db)))")
+            os_log("Error inserting log line: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
           }
 
           sqlite3_reset(stmt)
@@ -224,7 +225,7 @@ class PersistenceManager {
 
       let duration = Date().timeIntervalSince(start)
       if duration > 0.1 {
-        print("PersistenceManager: Read \(results.count) lines for \(panelId) in \(String(format: "%.3f", duration))s")
+        os_log("Read %{public}d lines for panel in %.3fs", log: Logger.persistence, type: .debug, results.count, duration)
       }
 
       return results
@@ -241,7 +242,7 @@ class PersistenceManager {
 
     // Open a new read-only connection for this operation
     if sqlite3_open_v2(path, &localDb, SQLITE_OPEN_READONLY, nil) != SQLITE_OK {
-      print("Error opening local database connection: \(String(cString: sqlite3_errmsg(localDb)))")
+      os_log("Error opening local database connection: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(localDb)))
       return []
     }
     defer { sqlite3_close(localDb) }
@@ -293,7 +294,7 @@ class PersistenceManager {
           stmt, 1, panelId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
         if sqlite3_step(stmt) != SQLITE_DONE {
-          print("Error deleting log: \(String(cString: sqlite3_errmsg(db)))")
+          os_log("Error deleting log: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
         }
       }
       sqlite3_finalize(stmt)
@@ -335,7 +336,7 @@ class PersistenceManager {
         sqlite3_bind_double(stmt, 5, Date().timeIntervalSince1970)
 
         if sqlite3_step(stmt) != SQLITE_DONE {
-          print("Error recording run: \(String(cString: sqlite3_errmsg(db)))")
+          os_log("Error recording run: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
         }
       }
       sqlite3_finalize(stmt)
@@ -418,9 +419,9 @@ class PersistenceManager {
       let tempPath = multiWindowStateFilePath.appendingPathExtension("tmp")
       try data.write(to: tempPath)
       _ = try fileManager.replaceItemAt(multiWindowStateFilePath, withItemAt: tempPath)
-      print("PersistenceManager: Saved multi-window state to \(multiWindowStateFilePath.path)")
+      os_log("Saved multi-window state", log: Logger.persistence, type: .debug)
     } catch {
-      print("Error saving multi-window state: \(error)")
+      os_log("Error saving multi-window state: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
     }
   }
 
@@ -434,10 +435,10 @@ class PersistenceManager {
       let data = try Data(contentsOf: multiWindowStateFilePath)
       let decoder = JSONDecoder()
       let state = try decoder.decode(MultiWindowState.self, from: data)
-      print("PersistenceManager: Loaded multi-window state with \(state.windows.count) windows")
+      os_log("Loaded multi-window state with %{public}d windows", log: Logger.persistence, type: .debug, state.windows.count)
       return state
     } catch {
-      print("Error loading multi-window state: \(error)")
+      os_log("Error loading multi-window state: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
       return nil
     }
   }
@@ -452,7 +453,7 @@ class PersistenceManager {
       let data = try encoder.encode(settings)
       try data.write(to: settingsFilePath)
     } catch {
-      print("Error saving settings: \(error)")
+      os_log("Error saving settings: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
     }
   }
 
@@ -467,17 +468,17 @@ class PersistenceManager {
       let decoder = JSONDecoder()
       return try decoder.decode(GlobalSettings.self, from: data)
     } catch {
-      print("Error loading settings: \(error)")
+      os_log("Error loading settings: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
       return nil
     }
   }
 
   // MARK: - Log Retention Cleanup
 
-  /// Start periodic cleanup timer (runs every 5 minutes)
+  /// Start periodic cleanup timer
   private func startCleanupTimer() {
     let timer = DispatchSource.makeTimerSource(queue: dbQueue)
-    timer.schedule(deadline: .now() + 60, repeating: 300)  // Start after 1 min, repeat every 5 min
+    timer.schedule(deadline: .now() + 60, repeating: Constants.logCleanupIntervalSeconds)  // Start after 1 min, repeat based on constant
     timer.setEventHandler { [weak self] in
       self?.performRetentionCleanup()
     }
@@ -512,7 +513,7 @@ class PersistenceManager {
     } while deletedThisBatch == batchSize
 
     if totalDeleted > 0 {
-      print("Log retention cleanup: deleted \(totalDeleted) old entries")
+      os_log("Log retention cleanup: deleted %{public}d old entries", log: Logger.persistence, type: .info, totalDeleted)
     }
   }
 
@@ -543,112 +544,4 @@ class PersistenceManager {
 
 // MARK: - State Models
 
-/// Global app settings
-struct GlobalSettings: Codable {
-  var theme: AppTheme
-  var fontSize: CGFloat
-  var maxLineHistory: Int
-  var autoDirenv: Bool
-  var logRetentionSeconds: Int?  // nil means no limit
-  var logRetentionUnit: RetentionUnit?  // for UI display purposes
-  var showMenuBarExtra: Bool?
-  var autoReloadDebounce: TimeInterval?
-  var globalAutoReloadIncludes: [String]?
-  var globalAutoReloadExcludes: [String]?
-  
-  // Auto Restart
-  var autoRestartEnabled: Bool?
-  var restartInitialDelay: TimeInterval?
-  var restartMaxDelay: TimeInterval?
-  var restartResetTime: TimeInterval?
-
-  // HTTP API
-  var httpAPIEnabled: Bool?
-  var httpAPIPort: UInt16?
-
-  init(
-    theme: AppTheme = .auto,
-    fontSize: CGFloat = 12,
-    maxLineHistory: Int = 10000,
-    autoDirenv: Bool = false,
-    logRetentionSeconds: Int? = nil,
-    logRetentionUnit: RetentionUnit? = nil,
-    showMenuBarExtra: Bool? = nil,
-    autoReloadDebounce: TimeInterval? = 0.5,
-    globalAutoReloadIncludes: [String]? = [],
-    globalAutoReloadExcludes: [String]? = [
-      "node_modules/**", "*.log", ".git/**", "*.pyc", "__pycache__/**", "*.o", "*.class", "dist/**",
-      "build/**",
-    ],
-    autoRestartEnabled: Bool? = false,
-    restartInitialDelay: TimeInterval? = 0.5,
-    restartMaxDelay: TimeInterval? = 10.0,
-    restartResetTime: TimeInterval? = 5.0,
-    httpAPIEnabled: Bool? = true,
-    httpAPIPort: UInt16? = 9476
-  ) {
-    self.theme = theme
-    self.fontSize = fontSize
-    self.maxLineHistory = maxLineHistory
-    self.autoDirenv = autoDirenv
-    self.logRetentionSeconds = logRetentionSeconds
-    self.logRetentionUnit = logRetentionUnit
-    self.showMenuBarExtra = showMenuBarExtra
-    self.autoReloadDebounce = autoReloadDebounce
-    self.globalAutoReloadIncludes = globalAutoReloadIncludes
-    self.globalAutoReloadExcludes = globalAutoReloadExcludes
-    self.autoRestartEnabled = autoRestartEnabled
-    self.restartInitialDelay = restartInitialDelay
-    self.restartMaxDelay = restartMaxDelay
-    self.restartResetTime = restartResetTime
-    self.httpAPIEnabled = httpAPIEnabled
-    self.httpAPIPort = httpAPIPort
-  }
-}
-
-enum AppTheme: String, Codable, CaseIterable, Identifiable {
-  case light
-  case dark
-  case auto
-
-  var id: String { rawValue }
-}
-
-/// Persisted panel state
-struct PanelState: Codable, Identifiable {
-  var id: UUID
-  var title: String
-  var processConfig: ProcessConfigState?
-  var status: PanelStatusState
-  var handleId: String?  // tmux session ID for reconnection
-}
-
-/// Persisted process config
-struct ProcessConfigState: Codable {
-  var name: String
-  var command: String
-  var workingDirectory: String
-  var shell: String
-  var autoReloadEnabled: Bool?
-  var autoReloadIncludes: [String]?
-  var autoReloadExcludes: [String]?
-}
-
-/// Persisted panel status
-enum PanelStatusState: Codable {
-  case running
-  case exitedNormally
-  case exitedWithError(code: Int32)
-}
-
-/// Persisted layout node (mirrors TileNode structure)
-indirect enum LayoutNode: Codable {
-  case leaf(id: UUID, panelId: UUID)
-  case split(
-    id: UUID, direction: LayoutDirection, first: LayoutNode, second: LayoutNode, ratio: CGFloat)
-}
-
-enum LayoutDirection: String, Codable {
-  case horizontal
-  case vertical
-}
+// Types moved to SharedTypes.swift

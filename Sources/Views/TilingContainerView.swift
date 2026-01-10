@@ -201,7 +201,7 @@ struct PanelWithDropZones: View {
   }
 
   private func dropHighlightRect(for position: DropPosition, in size: CGSize) -> some View {
-    let edgeThreshold: CGFloat = 0.25
+    let edgeThreshold: CGFloat = Constants.dragDropEdgeThreshold
     let rect: CGRect
     switch position {
     case .left:
@@ -233,7 +233,7 @@ struct PanelDropDelegate: DropDelegate {
   let tilingState: TilingState
   @Binding var dropPosition: DropPosition?
   let viewSize: CGSize
-  private let edgeThreshold: CGFloat = 0.25
+  private let edgeThreshold: CGFloat = Constants.dragDropEdgeThreshold
 
   func dropEntered(info: DropInfo) {
     updateDropPosition(info: info)

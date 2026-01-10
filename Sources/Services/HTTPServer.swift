@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os.log
 
 /// HTTP Server for the REST API
 /// Listens on localhost on a configurable port
@@ -19,7 +20,7 @@ class HTTPServer: ObservableObject {
   /// Start the HTTP server on the configured port
   func start() {
     let configuredPort = SettingsManager.shared.httpAPIPort
-    print("HTTPServer: start() called, isRunning=\(isRunning), configuredPort=\(configuredPort)")
+    os_log("start() called, isRunning=%{public}@, configuredPort=%{public}d", log: Logger.httpServer, type: .debug, isRunning ? "true" : "false", configuredPort)
     guard !isRunning else { return }
 
     do {
@@ -27,7 +28,10 @@ class HTTPServer: ObservableObject {
       parameters.allowLocalEndpointReuse = true
 
       // Use the configured port
-      let nwPort = NWEndpoint.Port(rawValue: configuredPort)!
+      guard let nwPort = NWEndpoint.Port(rawValue: configuredPort) else {
+        os_log("Invalid port number: %{public}d", log: Logger.httpServer, type: .error, configuredPort)
+        return
+      }
       listener = try NWListener(using: parameters, on: nwPort)
       listener?.stateUpdateHandler = { [weak self] state in
         DispatchQueue.main.async {
@@ -40,7 +44,7 @@ class HTTPServer: ObservableObject {
 
       listener?.start(queue: queue)
     } catch {
-      print("HTTPServer: Failed to create listener: \(error)")
+      os_log("Failed to create listener: %{public}@", log: Logger.httpServer, type: .error, error.localizedDescription)
     }
   }
 
@@ -68,10 +72,10 @@ class HTTPServer: ObservableObject {
         self.port = port
         self.url = "http://localhost:\(port)"
         self.isRunning = true
-        print("HTTPServer: Listening on http://localhost:\(port)")
+        os_log("Listening on http://localhost:%{public}d", log: Logger.httpServer, type: .info, port)
       }
     case .failed(let error):
-      print("HTTPServer: Listener failed: \(error)")
+      os_log("Listener failed: %{public}@", log: Logger.httpServer, type: .error, error.localizedDescription)
       isRunning = false
     case .cancelled:
       isRunning = false
@@ -275,58 +279,26 @@ class HTTPServer: ObservableObject {
       let tilingState = found.source
       var needsRestart = false
 
+      // Update name if provided
       if let name = json["name"] as? String {
-        config = ProcessConfig(
-          id: config.id,
-          name: name,
-          command: config.command,
-          workingDirectory: config.workingDirectory,
-          shell: config.shell,
-          autoReloadEnabled: config.autoReloadEnabled,
-          autoReloadIncludes: config.autoReloadIncludes,
-          autoReloadExcludes: config.autoReloadExcludes
-        )
+        config = config.updating(name: name)
       }
 
+      // Update command if provided (requires restart)
       if let command = json["command"] as? String, command != config.command {
-        config = ProcessConfig(
-          id: config.id,
-          name: config.name,
-          command: command,
-          workingDirectory: config.workingDirectory,
-          shell: config.shell,
-          autoReloadEnabled: config.autoReloadEnabled,
-          autoReloadIncludes: config.autoReloadIncludes,
-          autoReloadExcludes: config.autoReloadExcludes
-        )
+        config = config.updating(command: command)
         needsRestart = true
       }
 
+      // Update working directory if provided (requires restart)
       if let workingDirectory = json["workingDirectory"] as? String, workingDirectory != config.workingDirectory {
-        config = ProcessConfig(
-          id: config.id,
-          name: config.name,
-          command: config.command,
-          workingDirectory: workingDirectory,
-          shell: config.shell,
-          autoReloadEnabled: config.autoReloadEnabled,
-          autoReloadIncludes: config.autoReloadIncludes,
-          autoReloadExcludes: config.autoReloadExcludes
-        )
+        config = config.updating(workingDirectory: workingDirectory)
         needsRestart = true
       }
 
+      // Update auto-reload if provided
       if let autoReload = json["autoReload"] as? Bool {
-        config = ProcessConfig(
-          id: config.id,
-          name: config.name,
-          command: config.command,
-          workingDirectory: config.workingDirectory,
-          shell: config.shell,
-          autoReloadEnabled: autoReload,
-          autoReloadIncludes: config.autoReloadIncludes,
-          autoReloadExcludes: config.autoReloadExcludes
-        )
+        config = config.updating(autoReloadEnabled: autoReload)
       }
 
       tilingState.updateProcess(forPanelId: uuid, newConfig: config)

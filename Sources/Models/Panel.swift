@@ -27,7 +27,7 @@ final class LineSegmentCache {
   static let shared = LineSegmentCache()
   private var cache: [UUID: [OutputSegment]] = [:]
   private let lock = NSLock()
-  private let maxCacheSize = 5000
+  private let maxCacheSize = Constants.maxLineSegmentCacheSize
 
   func get(_ id: UUID, rawText: String) -> [OutputSegment] {
     lock.lock()
@@ -43,8 +43,8 @@ final class LineSegmentCache {
     lock.lock()
     // Evict old entries if cache is too large
     if cache.count > maxCacheSize {
-      // Remove ~20% of entries (simple eviction)
-      let keysToRemove = Array(cache.keys.prefix(maxCacheSize / 5))
+      // Remove entries based on eviction percentage
+      let keysToRemove = Array(cache.keys.prefix(Int(Double(maxCacheSize) * Constants.cacheEvictionPercentage)))
       for key in keysToRemove {
         cache.removeValue(forKey: key)
       }

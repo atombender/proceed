@@ -67,6 +67,30 @@ struct ProcessConfig: Identifiable, Equatable {
   static var defaultShell: String {
     ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
   }
+
+  /// Create a copy with updated fields
+  func updating(
+    name: String? = nil,
+    command: String? = nil,
+    workingDirectory: String? = nil,
+    shell: String? = nil,
+    autoReloadEnabled: Bool? = nil,
+    autoReloadIncludes: [String]? = nil,
+    autoReloadExcludes: [String]? = nil,
+    autoRestart: AutoRestartMode? = nil
+  ) -> ProcessConfig {
+    ProcessConfig(
+      id: self.id,
+      name: name ?? self.name,
+      command: command ?? self.command,
+      workingDirectory: workingDirectory ?? self.workingDirectory,
+      shell: shell ?? self.shell,
+      autoReloadEnabled: autoReloadEnabled ?? self.autoReloadEnabled,
+      autoReloadIncludes: autoReloadIncludes ?? self.autoReloadIncludes,
+      autoReloadExcludes: autoReloadExcludes ?? self.autoReloadExcludes,
+      autoRestart: autoRestart ?? self.autoRestart
+    )
+  }
 }
 
 /// Represents a running or completed process managed by a backend

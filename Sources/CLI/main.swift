@@ -6,11 +6,6 @@ let applicationSupportPath = FileManager.default
   .homeDirectoryForCurrentUser
   .appendingPathComponent("Library/Application Support/Proceed")
 
-struct GlobalSettings: Codable {
-  var httpAPIEnabled: Bool?
-  var httpAPIPort: UInt16?
-}
-
 func loadSettings() -> GlobalSettings? {
   let settingsPath = applicationSupportPath.appendingPathComponent("settings.json")
   guard let data = try? Data(contentsOf: settingsPath),
@@ -30,7 +25,7 @@ func getBaseURL() -> String {
 
   // Read port from settings
   let settings = loadSettings()
-  let port = settings?.httpAPIPort ?? 9476
+  let port = settings?.httpAPIPort ?? Constants.defaultHTTPPort
   return "http://localhost:\(port)"
 }
 

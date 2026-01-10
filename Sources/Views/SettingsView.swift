@@ -337,10 +337,7 @@ struct LogRetentionContent: View {
   }
 }
 
-enum RetentionUnit: String, Codable {
-  case hours
-  case days
-}
+// RetentionUnit moved to SharedTypes.swift
 
 #Preview {
   SettingsView()

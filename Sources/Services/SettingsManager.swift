@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreServices
+import os.log
 
 extension Notification.Name {
   static let menuBarExtraChanged = Notification.Name("menuBarExtraChanged")
@@ -56,7 +57,7 @@ class SettingsManager: ObservableObject {
   }
 
   /// Debounce time for auto-reload (seconds)
-  @Published var autoReloadDebounce: TimeInterval = 0.5 {
+  @Published var autoReloadDebounce: TimeInterval = Constants.fileWatchDebounceDelay {
     didSet {
       saveSettings()
     }
@@ -130,7 +131,7 @@ class SettingsManager: ObservableObject {
       self.logRetentionSeconds = settings.logRetentionSeconds
       self.logRetentionUnit = settings.logRetentionUnit ?? .days
       self.showMenuBarExtra = settings.showMenuBarExtra ?? false
-      self.autoReloadDebounce = settings.autoReloadDebounce ?? 0.5
+      self.autoReloadDebounce = settings.autoReloadDebounce ?? Constants.fileWatchDebounceDelay
       if let includes = settings.globalAutoReloadIncludes {
         // Migration: If the user has the legacy default ["**/*"], remove it so it doesn't override per-process includes
         if includes == ["**/*"] {
@@ -283,7 +284,7 @@ class FileMonitor {
     private var debounceTimer: DispatchSourceTimer?
     private var changedPaths: Set<String> = []
     
-    init(path: String, latency: TimeInterval = 0.5, debounce: TimeInterval = 0.5, callback: @escaping ([String]) -> Void) {
+    init(path: String, latency: TimeInterval = Constants.fileWatchDebounceDelay, debounce: TimeInterval = Constants.fileWatchDebounceDelay, callback: @escaping ([String]) -> Void) {
         self.path = path
         self.latency = latency
         self.debounceInterval = debounce
