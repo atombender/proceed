@@ -91,6 +91,8 @@ struct ProceedApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusItem: NSStatusItem?
   private var settingsObserver: NSObjectProtocol?
+  private var httpAPIObserver: NSObjectProtocol?
+
   func applicationDidFinishLaunching(_ notification: Notification) {
     // Set up menu bar status item if enabled
     updateStatusItemVisibility()
@@ -104,9 +106,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       self?.updateStatusItemVisibility()
     }
 
+    // Start HTTP API server if enabled
+    updateHTTPServerState()
+
+    // Observe settings changes for HTTP API toggle
+    httpAPIObserver = NotificationCenter.default.addObserver(
+      forName: .httpAPIEnabledChanged,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      self?.updateHTTPServerState()
+    }
+
     // Create additional windows for any remaining saved states
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
       self.restoreAdditionalWindows()
+    }
+  }
+
+  private func updateHTTPServerState() {
+    let enabled = SettingsManager.shared.httpAPIEnabled
+    print("AppDelegate: updateHTTPServerState() - httpAPIEnabled=\(enabled)")
+    if enabled {
+      HTTPServer.shared.start()
+    } else {
+      HTTPServer.shared.stop()
     }
   }
 
@@ -305,6 +329,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    // Stop HTTP server
+    HTTPServer.shared.stop()
+
     // Save state before windows close
     WindowManager.shared.beginTermination()
     WindowManager.shared.saveAllStates()

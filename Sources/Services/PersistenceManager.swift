@@ -562,6 +562,10 @@ struct GlobalSettings: Codable {
   var restartMaxDelay: TimeInterval?
   var restartResetTime: TimeInterval?
 
+  // HTTP API
+  var httpAPIEnabled: Bool?
+  var httpAPIPort: UInt16?
+
   init(
     theme: AppTheme = .auto,
     fontSize: CGFloat = 12,
@@ -579,7 +583,9 @@ struct GlobalSettings: Codable {
     autoRestartEnabled: Bool? = false,
     restartInitialDelay: TimeInterval? = 0.5,
     restartMaxDelay: TimeInterval? = 10.0,
-    restartResetTime: TimeInterval? = 5.0
+    restartResetTime: TimeInterval? = 5.0,
+    httpAPIEnabled: Bool? = true,
+    httpAPIPort: UInt16? = 9476
   ) {
     self.theme = theme
     self.fontSize = fontSize
@@ -595,6 +601,8 @@ struct GlobalSettings: Codable {
     self.restartInitialDelay = restartInitialDelay
     self.restartMaxDelay = restartMaxDelay
     self.restartResetTime = restartResetTime
+    self.httpAPIEnabled = httpAPIEnabled
+    self.httpAPIPort = httpAPIPort
   }
 }
 

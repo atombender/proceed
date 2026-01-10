@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
   @StateObject private var tilingState = TilingState()
+  @ObservedObject private var httpServer = HTTPServer.shared
 
   var body: some View {
     ZStack {
@@ -22,6 +23,11 @@ struct ContentView: View {
     .environmentObject(tilingState)
     .frame(minWidth: 600, minHeight: 400)
     .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
+    .toolbar {
+      ToolbarItem(placement: .automatic) {
+        httpAPIStatusPill
+      }
+    }
     .onDrop(of: [.text], isTargeted: nil) { _ in
       // Catch-all drop handler to clear drag state when drop ends anywhere
       tilingState.cancelDrag()
@@ -61,6 +67,43 @@ struct ContentView: View {
         .foregroundColor(.secondary.opacity(0.5))
 
       Spacer()
+    }
+  }
+
+  @ViewBuilder
+  private var httpAPIStatusPill: some View {
+    if httpServer.isRunning, let url = httpServer.url {
+      HStack(spacing: 4) {
+        Circle()
+          .fill(Color.green)
+          .frame(width: 6, height: 6)
+        Text(url)
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundColor(.secondary)
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(Color(NSColor.controlBackgroundColor).opacity(0.8))
+      .cornerRadius(4)
+      .help("HTTP API is running. Click to copy URL.")
+      .onTapGesture {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url, forType: .string)
+      }
+    } else {
+      HStack(spacing: 4) {
+        Circle()
+          .fill(Color.gray)
+          .frame(width: 6, height: 6)
+        Text("HTTP API: off")
+          .font(.system(size: 10, weight: .medium))
+          .foregroundColor(.secondary.opacity(0.6))
+      }
+      .padding(.horizontal, 8)
+      .padding(.vertical, 3)
+      .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+      .cornerRadius(4)
+      .help("HTTP API is disabled. Enable in Settings.")
     }
   }
 }

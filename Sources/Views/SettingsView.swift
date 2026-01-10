@@ -177,45 +177,69 @@ struct GeneralSettingsView: View {
 
   var body: some View {
     Form {
-      Picker("Appearance", selection: $settingsManager.theme) {
-        Text("System").tag(AppTheme.auto)
-        Text("Light").tag(AppTheme.light)
-        Text("Dark").tag(AppTheme.dark)
+      Section("Appearance") {
+        Picker("Theme", selection: $settingsManager.theme) {
+          Text("System").tag(AppTheme.auto)
+          Text("Light").tag(AppTheme.light)
+          Text("Dark").tag(AppTheme.dark)
+        }
+        .pickerStyle(.inline)
       }
-      .pickerStyle(.inline)
 
-      LabeledContent("Max Line History") {
-        HStack {
-          TextField("", text: $lineHistoryText)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 80)
-            .multilineTextAlignment(.trailing)
-            .onAppear {
-              lineHistoryText = String(settingsManager.maxLineHistory)
-            }
-            .onChange(of: lineHistoryText) { newValue in
-              if let value = Int(newValue), value > 0 {
-                settingsManager.maxLineHistory = value
+      Section("Output") {
+        LabeledContent("Max Line History") {
+          HStack {
+            TextField("", text: $lineHistoryText)
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 80)
+              .multilineTextAlignment(.trailing)
+              .onAppear {
+                lineHistoryText = String(settingsManager.maxLineHistory)
               }
-            }
-          Text("lines")
-            .foregroundColor(.secondary)
+              .onChange(of: lineHistoryText) { newValue in
+                if let value = Int(newValue), value > 0 {
+                  settingsManager.maxLineHistory = value
+                }
+              }
+            Text("lines")
+              .foregroundColor(.secondary)
+          }
+        }
+
+        LabeledContent("Log Retention") {
+          LogRetentionContent()
         }
       }
 
-      Toggle("Auto-load direnv if .envrc is present", isOn: $settingsManager.autoDirenv)
-        .help(
-          "Automatically run commands with 'direnv exec .' when the working directory contains a .envrc file"
-        )
+      Section("Integrations") {
+        Toggle("Auto-load direnv if .envrc is present", isOn: $settingsManager.autoDirenv)
+          .help(
+            "Automatically run commands with 'direnv exec .' when the working directory contains a .envrc file"
+          )
 
-      Toggle("Show menu bar icon", isOn: $settingsManager.showMenuBarExtra)
-        .help("Show Proceed in the menu bar for quick access to panels")
-
-      LabeledContent("Log Retention") {
-        LogRetentionContent()
+        Toggle("Show menu bar icon", isOn: $settingsManager.showMenuBarExtra)
+          .help("Show Proceed in the menu bar for quick access to panels")
       }
-      .padding(.top, 8)
+
+      Section("HTTP API") {
+        Toggle("Enable HTTP API", isOn: $settingsManager.httpAPIEnabled)
+          .help("Enable local HTTP API for command-line tools and integrations")
+
+        if settingsManager.httpAPIEnabled {
+          LabeledContent("Port") {
+            TextField("", text: Binding(
+              get: { String(settingsManager.httpAPIPort) },
+              set: { if let val = UInt16($0) { settingsManager.httpAPIPort = val } }
+            ))
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 80)
+              .multilineTextAlignment(.trailing)
+          }
+          .help("Port for the HTTP API server (requires restart)")
+        }
+      }
     }
+    .formStyle(.grouped)
     .padding()
   }
 }

@@ -3,6 +3,7 @@ import CoreServices
 
 extension Notification.Name {
   static let menuBarExtraChanged = Notification.Name("menuBarExtraChanged")
+  static let httpAPIEnabledChanged = Notification.Name("httpAPIEnabledChanged")
 }
 
 class SettingsManager: ObservableObject {
@@ -100,6 +101,22 @@ class SettingsManager: ObservableObject {
     didSet { saveSettings() }
   }
 
+  /// Enable HTTP API server (enabled by default)
+  @Published var httpAPIEnabled: Bool = true {
+    didSet {
+      saveSettings()
+      NotificationCenter.default.post(name: .httpAPIEnabledChanged, object: nil)
+    }
+  }
+
+  /// HTTP API server port
+  @Published var httpAPIPort: UInt16 = 9476 {
+    didSet {
+      saveSettings()
+      NotificationCenter.default.post(name: .httpAPIEnabledChanged, object: nil)
+    }
+  }
+
   init() {
     loadSettings()
   }
@@ -139,6 +156,14 @@ class SettingsManager: ObservableObject {
       if let reset = settings.restartResetTime {
         self.restartResetTime = reset
       }
+
+      // HTTP API
+      if let httpEnabled = settings.httpAPIEnabled {
+        self.httpAPIEnabled = httpEnabled
+      }
+      if let httpPort = settings.httpAPIPort {
+        self.httpAPIPort = httpPort
+      }
     }
   }
 
@@ -157,7 +182,9 @@ class SettingsManager: ObservableObject {
       autoRestartEnabled: autoRestartEnabled,
       restartInitialDelay: restartInitialDelay,
       restartMaxDelay: restartMaxDelay,
-      restartResetTime: restartResetTime
+      restartResetTime: restartResetTime,
+      httpAPIEnabled: httpAPIEnabled,
+      httpAPIPort: httpAPIPort
     )
     PersistenceManager.shared.saveSettings(settings)
   }

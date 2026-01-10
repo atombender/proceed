@@ -24,6 +24,9 @@
 		A100000000000015 /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000016 /* SettingsManager.swift */; };
 		A100000000000016 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000017 /* SettingsView.swift */; };
 		A100000000000017 /* LogContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000018 /* LogContentView.swift */; };
+		A100000000000018 /* HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000000000019 /* HTTPServer.swift */; };
+		C100000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C200000000000001 /* main.swift */; };
+		C100000000000002 /* proceed-cli in CopyFiles */ = {isa = PBXBuildFile; fileRef = C300000000000001 /* proceed-cli */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,11 +48,44 @@
 		A200000000000016 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
 		A200000000000017 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A200000000000018 /* LogContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogContentView.swift; sourceTree = "<group>"; };
+		A200000000000019 /* HTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPServer.swift; sourceTree = "<group>"; };
 		A300000000000001 /* Proceed.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Proceed.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C200000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		C300000000000001 /* proceed-cli */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "proceed-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXContainerItemProxy section */
+		C400000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A900000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C600000000000001;
+			remoteInfo = proceed;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C500000000000001 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				C100000000000002 /* proceed-cli in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A400000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C400000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -76,8 +112,17 @@
 				A500000000000004 /* Models */,
 				A500000000000005 /* ViewModels */,
 				A500000000000008 /* Services */,
+				C500000000000002 /* CLI */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		C500000000000002 /* CLI */ = {
+			isa = PBXGroup;
+			children = (
+				C200000000000001 /* main.swift */,
+			);
+			path = CLI;
 			sourceTree = "<group>";
 		};
 		A500000000000003 /* Views */ = {
@@ -124,6 +169,7 @@
 			isa = PBXGroup;
 			children = (
 				A300000000000001 /* Proceed.app */,
+				C300000000000001 /* proceed-cli */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -136,6 +182,7 @@
 				A200000000000014 /* TmuxBackend.swift */,
 				A200000000000015 /* WindowManager.swift */,
 				A200000000000016 /* SettingsManager.swift */,
+				A200000000000019 /* HTTPServer.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -150,17 +197,43 @@
 				A700000000000001 /* Sources */,
 				A400000000000001 /* Frameworks */,
 				A700000000000002 /* Resources */,
+				C500000000000001 /* CopyFiles */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C700000000000001 /* PBXTargetDependency */,
 			);
 			name = Proceed;
 			productName = Proceed;
 			productReference = A300000000000001 /* Proceed.app */;
 			productType = "com.apple.product-type.application";
 		};
+		C600000000000001 /* ProceedCLI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C800000000000001 /* Build configuration list for PBXNativeTarget "ProceedCLI" */;
+			buildPhases = (
+				C700000000000002 /* Sources */,
+				C400000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ProceedCLI;
+			productName = ProceedCLI;
+			productReference = C300000000000001 /* proceed-cli */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXTargetDependency section */
+		C700000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C600000000000001 /* ProceedCLI */;
+			targetProxy = C400000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		A900000000000001 /* Project object */ = {
@@ -171,6 +244,9 @@
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					A600000000000001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+					C600000000000001 = {
 						CreatedOnToolsVersion = 15.0;
 					};
 				};
@@ -189,6 +265,7 @@
 			projectRoot = "";
 			targets = (
 				A600000000000001 /* Proceed */,
+				C600000000000001 /* ProceedCLI */,
 			);
 		};
 /* End PBXProject section */
@@ -225,6 +302,15 @@
 				A100000000000015 /* SettingsManager.swift in Sources */,
 				A100000000000016 /* SettingsView.swift in Sources */,
 				A100000000000017 /* LogContentView.swift in Sources */,
+				A100000000000018 /* HTTPServer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C700000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C100000000000001 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -407,6 +493,26 @@
 			};
 			name = Release;
 		};
+		D100000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				PRODUCT_NAME = "proceed-cli";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		D100000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				PRODUCT_NAME = "proceed-cli";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -424,6 +530,15 @@
 			buildConfigurations = (
 				B100000000000001 /* Debug */,
 				B100000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C800000000000001 /* Build configuration list for PBXNativeTarget "ProceedCLI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D100000000000001 /* Debug */,
+				D100000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

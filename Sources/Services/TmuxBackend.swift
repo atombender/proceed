@@ -412,6 +412,7 @@ private class PipeReader {
   private var dataBuffer = Data()
   private var stopped = false
   private let readQueue = DispatchQueue(label: "com.proceed.pipereader", qos: .userInitiated)
+  private let lock = NSLock()
 
   private static let lineFeed: UInt8 = 0x0A  // \n
   private static let carriageReturn: UInt8 = 0x0D  // \r
@@ -428,7 +429,10 @@ private class PipeReader {
     guard let handle = try? FileHandle(forReadingFrom: path) else {
       return
     }
+
+    lock.lock()
     self.fileHandle = handle
+    lock.unlock()
 
     if fromBeginning {
       // Read existing content first
@@ -468,20 +472,37 @@ private class PipeReader {
   }
 
   func stop() {
+    lock.lock()
     stopped = true
+    let handle = fileHandle
+    fileHandle = nil
+    lock.unlock()
+
     timer?.cancel()
     timer = nil
     fileSource?.cancel()
     fileSource = nil
-    try? fileHandle?.close()
-    fileHandle = nil
+    try? handle?.close()
   }
 
   private func readNewContent() {
-    guard !stopped, let handle = fileHandle else { return }
+    lock.lock()
+    guard !stopped, let handle = fileHandle else {
+      lock.unlock()
+      return
+    }
+    lock.unlock()
 
-    let data = handle.availableData
-    guard !data.isEmpty else { return }
+    // Use read(upToCount:) which throws Swift errors we can catch
+    let data: Data?
+    do {
+      data = try handle.read(upToCount: 65536)
+    } catch {
+      // File handle was closed or became invalid - just return silently
+      return
+    }
+
+    guard let data = data, !data.isEmpty else { return }
 
     dataBuffer.append(data)
 

@@ -243,6 +243,25 @@ class WindowManager: ObservableObject {
     return result.sorted { $0.title < $1.title }
   }
 
+  /// Get the first available TilingState (for HTTP API)
+  func firstTilingState() -> TilingState? {
+    lock.lock()
+    let state = windowStates.values.first
+    lock.unlock()
+    return state
+  }
+
+  /// Get all panels from all windows (for HTTP API)
+  func allPanels() -> [Panel] {
+    lock.lock()
+    var panels: [Panel] = []
+    for (_, tilingState) in windowStates {
+      panels.append(contentsOf: tilingState.panels.values)
+    }
+    lock.unlock()
+    return panels
+  }
+
   /// Activate a window and focus a specific panel
   func activateWindowAndFocusPanel(windowId: UUID, panelId: UUID) {
     lock.lock()
