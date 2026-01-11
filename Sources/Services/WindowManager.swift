@@ -80,6 +80,9 @@ class WindowManager: ObservableObject {
     windowStates.removeValue(forKey: windowId)
     nsWindows.removeValue(forKey: windowId)
     lock.unlock()
+
+    // Also delete from SQLite storage
+    PersistenceManager.shared.deleteWindow(windowId)
   }
 
   /// Save all window states
