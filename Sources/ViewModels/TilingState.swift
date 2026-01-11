@@ -100,9 +100,9 @@ class TilingState: ObservableObject {
           highlightPatterns: configState.highlightPatterns ?? []
         )
         if processConfig?.autoReloadEnabled == true {
-            print("TilingState: Restored auto-reload ENABLED for \(configState.name)")
+          print("TilingState: Restored auto-reload ENABLED for \(configState.name)")
         } else {
-            print("TilingState: Restored auto-reload DISABLED for \(configState.name)")
+          print("TilingState: Restored auto-reload DISABLED for \(configState.name)")
         }
       }
 
@@ -128,8 +128,11 @@ class TilingState: ObservableObject {
       Task.detached(priority: .userInitiated) { [weak panel] in
         guard let panel = panel else { return }
         let limit = await MainActor.run { SettingsManager.shared.maxLineHistory }
-        let logEntries = await PersistenceManager.shared.readLogAsync(for: panelState.id, limit: limit)
-        let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
+        let logEntries = await PersistenceManager.shared.readLogAsync(
+          for: panelState.id, limit: limit)
+        let lines = logEntries.map {
+          OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind)
+        }
 
         await MainActor.run {
           panel.prependHistory(lines)
@@ -220,11 +223,11 @@ class TilingState: ObservableObject {
 
     // Create and start the process using the backend
     let runningProcess = RunningProcess(
-        config: config,
-        panel: panel,
-        onReloadRequest: { [weak self] in
-            self?.reloadProcess(forPanelId: panel.id)
-        }
+      config: config,
+      panel: panel,
+      onReloadRequest: { [weak self] in
+        self?.reloadProcess(forPanelId: panel.id)
+      }
     )
     processes[config.id] = runningProcess
 
@@ -419,11 +422,11 @@ class TilingState: ObservableObject {
 
     // Create and start new process, reusing the existing panel
     let runningProcess = RunningProcess(
-        config: newConfig,
-        panel: panel,
-        onReloadRequest: { [weak self] in
-            self?.reloadProcess(forPanelId: panel.id)
-        }
+      config: newConfig,
+      panel: panel,
+      onReloadRequest: { [weak self] in
+        self?.reloadProcess(forPanelId: panel.id)
+      }
     )
     processes[newConfig.id] = runningProcess
 
@@ -547,11 +550,11 @@ class TilingState: ObservableObject {
 
             // Create and start new process
             let runningProcess = RunningProcess(
-                config: newConfig,
-                panel: panel,
-                onReloadRequest: { [weak self] in
-                    self?.reloadProcess(forPanelId: panel.id)
-                }
+              config: newConfig,
+              panel: panel,
+              onReloadRequest: { [weak self] in
+                self?.reloadProcess(forPanelId: panel.id)
+              }
             )
             processes[newConfig.id] = runningProcess
             runningProcess.start(using: backend)
@@ -562,12 +565,12 @@ class TilingState: ObservableObject {
       // Only name changed - just update the panel title
       panel.processConfig = newConfig
       panel.title = newConfig.displayName
-      
+
       // Update running process config (e.g. for auto-reload settings)
       if let process = processes.values.first(where: { $0.panelId == panelId }) {
-          process.updateConfig(newConfig)
+        process.updateConfig(newConfig)
       }
-      
+
       WindowManager.shared.scheduleSave()
     }
   }
@@ -599,16 +602,16 @@ class TilingState: ObservableObject {
                 panel: panel,
                 isCurrentlyRunning: isRunning,
                 onReloadRequest: { [weak self] in
-                    self?.reloadProcess(forPanelId: panel.id)
+                  self?.reloadProcess(forPanelId: panel.id)
                 }
               )
-              
+
               // Ensure process uses the persisted configuration (e.g. auto-reload settings)
               // rather than the potentially stale configuration from the tmux backend metadata
               if let panelConfig = panel.processConfig {
-                  runningProcess.config = panelConfig
+                runningProcess.config = panelConfig
               }
-              
+
               processes[handle.config.id] = runningProcess
 
               if isRunning {
@@ -807,8 +810,9 @@ class TilingState: ObservableObject {
   /// Minimize a panel (collapse to title bar only)
   func minimizePanel(panelId: UUID) {
     guard let panel = panels[panelId],
-          var root = rootNode,
-          !panel.isMinimized else { return }
+      var root = rootNode,
+      !panel.isMinimized
+    else { return }
 
     // Find parent split info
     guard let parentInfo = root.findParentSplit(panelId: panelId) else { return }
@@ -821,7 +825,8 @@ class TilingState: ObservableObject {
       }
 
       // Set collapsed ratio (panel at ~5% height)
-      let collapsedRatio: CGFloat = parentInfo.isFirst
+      let collapsedRatio: CGFloat =
+        parentInfo.isFirst
         ? Constants.collapsedPanelRatio
         : (1 - Constants.collapsedPanelRatio)
       rootNode = root.updatingRatio(splitId: parentInfo.splitId, ratio: collapsedRatio)
@@ -843,7 +848,8 @@ class TilingState: ObservableObject {
 
           // Find the new parent split and set collapsed ratio
           if let newParentInfo = root.findParentSplit(panelId: panelId) {
-            let collapsedRatio: CGFloat = newParentInfo.isFirst
+            let collapsedRatio: CGFloat =
+              newParentInfo.isFirst
               ? Constants.collapsedPanelRatio
               : (1 - Constants.collapsedPanelRatio)
             root = root.updatingRatio(splitId: newParentInfo.splitId, ratio: collapsedRatio)
@@ -860,12 +866,14 @@ class TilingState: ObservableObject {
   /// Expand a minimized panel
   func expandPanel(panelId: UUID) {
     guard let panel = panels[panelId],
-          let root = rootNode,
-          panel.isMinimized else { return }
+      let root = rootNode,
+      panel.isMinimized
+    else { return }
 
     // Restore remembered ratio
     if let rememberedRatio = panel.rememberedRatio,
-       let parentInfo = root.findParentSplit(panelId: panelId) {
+      let parentInfo = root.findParentSplit(panelId: panelId)
+    {
       let restoredRatio = parentInfo.isFirst ? rememberedRatio : (1 - rememberedRatio)
       rootNode = root.updatingRatio(splitId: parentInfo.splitId, ratio: restoredRatio)
     }
@@ -949,7 +957,7 @@ class TilingState: ObservableObject {
         id: panelState.id,
         title: panelState.title,
         status: status,
-        lines: [], // Empty initially
+        lines: [],  // Empty initially
         processConfig: processConfig,
         tmuxHandleId: panelState.handleId,
         isMinimized: panelState.isMinimized ?? false,
@@ -963,8 +971,11 @@ class TilingState: ObservableObject {
       Task.detached(priority: .userInitiated) { [weak panel] in
         guard let panel = panel else { return }
         let limit = await MainActor.run { SettingsManager.shared.maxLineHistory }
-        let logEntries = await PersistenceManager.shared.readLogAsync(for: panelState.id, limit: limit)
-        let lines = logEntries.map { OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind) }
+        let logEntries = await PersistenceManager.shared.readLogAsync(
+          for: panelState.id, limit: limit)
+        let lines = logEntries.map {
+          OutputLine(text: $0.text, timestamp: $0.timestamp, kind: $0.kind)
+        }
 
         await MainActor.run {
           panel.prependHistory(lines)

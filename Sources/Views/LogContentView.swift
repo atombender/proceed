@@ -26,7 +26,7 @@ final class LogContentView: NSView {
 
   /// Track resize state - checks custom flag, window's live resize, and cooldown
   var isInLiveResize: Bool {
-    if _isInLiveResize || _isPanelResizing || (window?.inLiveResize ?? false) {
+    if _isInLiveResize || isPanelResizing || (window?.inLiveResize ?? false) {
       return true
     }
     // 500ms cooldown after resize ends
@@ -36,7 +36,7 @@ final class LogContentView: NSView {
     return false
   }
   private var _isInLiveResize: Bool = false
-  var _isPanelResizing: Bool = false  // Set by coordinator during panel resize
+  var isPanelResizing: Bool = false  // Set by coordinator during panel resize
   private var resizeEndedAt: Date?
 
   var font: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) {
@@ -171,12 +171,6 @@ final class LogContentView: NSView {
     }
   }
 
-  override func setFrameSize(_ newSize: NSSize) {
-    super.setFrameSize(newSize)
-    // Don't trigger redraws here - the coordinator or viewDidEndLiveResize handles it
-    // This makes resize with many lines much faster
-  }
-
   var savedTopLineForWindowResize: Int?
 
   override func viewWillStartLiveResize() {
@@ -263,7 +257,7 @@ final class LogContentView: NSView {
     }
     heightCache = heightCache.filter { newIds.contains($0.key) }
     cachedHeightSum = max(0, cachedHeightSum)  // Safety: ensure non-negative
-    
+
     // Remove cached attributed strings for lines that no longer exist
     attrStringCache = attrStringCache.filter { newIds.contains($0.key) }
 
@@ -342,7 +336,7 @@ final class LogContentView: NSView {
           // In light mode, standard ANSI bright colors (yellow, cyan, etc.) are often illegible
           // Darken them significantly to ensure contrast
           if isLightMode {
-             color = color.blended(withFraction: 0.3, of: .black) ?? color
+            color = color.blended(withFraction: 0.3, of: .black) ?? color
           }
           attrs[.foregroundColor] = color
         } else {
@@ -538,7 +532,10 @@ final class LogContentView: NSView {
     totalContentHeight = contentPadding + sumOfHeights + spacingTotal + contentPadding
 
     // Debug logging
-    let debugLine = "RECALC: lines=\(lines.count) measured=\(measuredCount) est=\(estimatedCount) sumH=\(Int(sumOfHeights)) spacing=\(Int(spacingTotal)) total=\(Int(totalContentHeight)) cacheWidth=\(Int(cacheWidth)) contentWidth=\(Int(contentWidth))\n"
+    let debugLine =
+      "RECALC: lines=\(lines.count) measured=\(measuredCount) "
+      + "est=\(estimatedCount) sumH=\(Int(sumOfHeights)) spacing=\(Int(spacingTotal)) "
+      + "total=\(Int(totalContentHeight)) cacheWidth=\(Int(cacheWidth)) contentWidth=\(Int(contentWidth))\n"
     if let data = debugLine.data(using: .utf8) {
       let url = URL(fileURLWithPath: "/tmp/proceed_height_debug.log")
       if let handle = try? FileHandle(forWritingTo: url) {
@@ -733,7 +730,8 @@ final class LogContentView: NSView {
   }
 
   private func drawGutter(
-    timestamp: String?, isLineSelected: Bool, isMeta: Bool, at y: CGFloat, height: CGFloat, in context: CGContext
+    timestamp: String?, isLineSelected: Bool, isMeta: Bool, at y: CGFloat, height: CGFloat,
+    in context: CGContext
   ) {
     // Always clear the gutter area for this line to prevent scroll artifacts
     // Skip if it's a meta line as it has its own prominent background
@@ -1202,7 +1200,9 @@ struct LogContentViewRepresentable: NSViewRepresentable {
       else { return }
 
       // Block tailing scroll during any resize activity
-      if coordinator.isCurrentlyResizing || contentView.isInLiveResize || contentView._isPanelResizing {
+      if coordinator.isCurrentlyResizing || contentView.isInLiveResize
+        || contentView.isPanelResizing
+      {
         return
       }
 
@@ -1322,13 +1322,16 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     Coordinator()
   }
 
-  private func scrollToBottomIfNeeded(_ scrollView: NSScrollView, measureFirst: Bool = false, forceScroll: Bool = false, retryCount: Int = 0) {
+  private func scrollToBottomIfNeeded(
+    _ scrollView: NSScrollView, measureFirst: Bool = false, forceScroll: Bool = false,
+    retryCount: Int = 0
+  ) {
     guard let contentView = scrollView.documentView as? LogContentView else {
       return
     }
 
     // Block tailing scroll during any resize activity (unless forced for initial scroll)
-    if !forceScroll && (contentView.isInLiveResize || contentView._isPanelResizing) {
+    if !forceScroll && (contentView.isInLiveResize || contentView.isPanelResizing) {
       return
     }
 
@@ -1344,7 +1347,9 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     // If content height is 0 but we have lines, the layout isn't ready yet - retry
     if contentHeight <= 0 && !contentView.lines.isEmpty && retryCount < 3 {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [self] in
-        self.scrollToBottomIfNeeded(scrollView, measureFirst: measureFirst, forceScroll: forceScroll, retryCount: retryCount + 1)
+        self.scrollToBottomIfNeeded(
+          scrollView, measureFirst: measureFirst, forceScroll: forceScroll,
+          retryCount: retryCount + 1)
       }
       return
     }
@@ -1361,7 +1366,8 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     var needsInitialScroll: Bool = false
     var pendingLines: [OutputLine]?  // Lines waiting to be set after view is sized
     private var lastUserScrollTime: Date?
-    var isPerformingInitialScroll: Bool = false  // Flag to ignore scroll events during initial setup
+    // Flag to ignore scroll events during initial setup
+    var isPerformingInitialScroll: Bool = false
 
     // Track rapid frame changes to detect programmatic resizing
     private var lastFrameChangeTime: Date?
@@ -1388,7 +1394,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
       else { return }
 
       // During resize: actively block scroll changes by resetting to saved position
-      if isResizing || contentView._isPanelResizing || contentView.isInLiveResize {
+      if isResizing || contentView.isPanelResizing || contentView.isInLiveResize {
         if let savedLine = savedTopLineIndex ?? contentView.savedTopLineForWindowResize {
           let estimatedLineHeight = contentView.lineHeight + contentView.lineSpacing
           let targetY = contentView.contentPadding + CGFloat(savedLine) * estimatedLineHeight
@@ -1459,7 +1465,8 @@ struct LogContentViewRepresentable: NSViewRepresentable {
         contentView.needsDisplay = true
 
         // Defer scroll with small delay to ensure layout is fully complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak scrollView, weak contentView] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+          [weak self, weak scrollView, weak contentView] in
           guard let self = self, let scrollView = scrollView, let contentView = contentView else {
             return
           }
@@ -1507,16 +1514,17 @@ struct LogContentViewRepresentable: NSViewRepresentable {
             }
           }
           isResizing = true
-          contentView._isPanelResizing = true  // Tell content view to skip expensive drawing
+          contentView.isPanelResizing = true  // Tell content view to skip expensive drawing
           contentView.frame.size.width = newWidth
           // Don't set needsDisplay - wait until resize ends to redraw
 
           // Schedule resize-end handler
-          resizeEndTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+          resizeEndTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) {
+            [weak self] _ in
             guard let self = self, let contentView = self.documentView else { return }
             self.isResizing = false
             self.resizeEndedAt = Date()  // Record for cooldown period
-            contentView._isPanelResizing = false
+            contentView.isPanelResizing = false
             contentView.handleResizeEnded()
 
             // Restore scroll position to keep same line at top

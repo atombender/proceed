@@ -95,11 +95,11 @@ class RunningProcess: ObservableObject, Identifiable {
   private var panel: Panel?
   private var handle: ProcessHandle?
   private var monitorTask: Task<Void, Never>?
-  
+
   // Auto-reload support
   private var fileMonitor: FileMonitor?
   var onReloadRequest: (() -> Void)?
-  
+
   // Auto-restart support
   private var restartAttempts: Int = 0
   private var resetBackoffTask: Task<Void, Never>?
@@ -113,7 +113,10 @@ class RunningProcess: ObservableObject, Identifiable {
   }
 
   /// Initialize from an existing process handle (for reconnection)
-  init(handle: ProcessHandle, panel: Panel, isCurrentlyRunning: Bool, onReloadRequest: (() -> Void)? = nil) {
+  init(
+    handle: ProcessHandle, panel: Panel, isCurrentlyRunning: Bool,
+    onReloadRequest: (() -> Void)? = nil
+  ) {
     self.id = handle.config.id
     self.config = handle.config
     self.panelId = panel.id
@@ -122,22 +125,23 @@ class RunningProcess: ObservableObject, Identifiable {
     self.isRunning = isCurrentlyRunning
     self.onReloadRequest = onReloadRequest
   }
-  
+
   /// Update configuration dynamically
   func updateConfig(_ newConfig: ProcessConfig) {
     let oldConfig = self.config
     self.config = newConfig
-    
+
     // Check if auto-reload settings changed
-    let autoReloadChanged = oldConfig.autoReloadEnabled != newConfig.autoReloadEnabled ||
-                            oldConfig.autoReloadIncludes != newConfig.autoReloadIncludes ||
-                            oldConfig.autoReloadExcludes != newConfig.autoReloadExcludes
-    
+    let autoReloadChanged =
+      oldConfig.autoReloadEnabled != newConfig.autoReloadEnabled
+      || oldConfig.autoReloadIncludes != newConfig.autoReloadIncludes
+      || oldConfig.autoReloadExcludes != newConfig.autoReloadExcludes
+
     if autoReloadChanged && isRunning {
       // Restart monitoring with new settings
       fileMonitor?.stop()
       fileMonitor = nil
-      
+
       if newConfig.autoReloadEnabled {
         startFileMonitoring()
       }
@@ -158,25 +162,25 @@ class RunningProcess: ObservableObject, Identifiable {
           self.panel?.startedAt = Date()
           self.panel?.stoppedAt = nil
           self.panel?.appendEvent(.started, message: "Started: \(self.config.command)")
-          
+
           // Start file monitoring if enabled
           if self.config.autoReloadEnabled {
             self.startFileMonitoring()
           }
         }
-        
+
         // Schedule task to reset restart attempts after success duration
         resetBackoffTask?.cancel()
         let resetTime = SettingsManager.shared.restartResetTime
         resetBackoffTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(resetTime * 1_000_000_000))
-            if !Task.isCancelled {
-                await MainActor.run {
-                    if self.isRunning {
-                        self.restartAttempts = 0
-                    }
-                }
+          try? await Task.sleep(nanoseconds: UInt64(resetTime * 1_000_000_000))
+          if !Task.isCancelled {
+            await MainActor.run {
+              if self.isRunning {
+                self.restartAttempts = 0
+              }
             }
+          }
         }
 
         // Start streaming output
@@ -199,14 +203,14 @@ class RunningProcess: ObservableObject, Identifiable {
       }
     }
   }
-  
+
   private func handleStartFailure() {
-      // Reuse termination logic to trigger restart if appropriate
-      // We pass a dummy 'backend' reference isn't really needed for logic check, 
-      // but handleTermination expects it. However, handleTermination cleans up backend resources.
-      // Here we failed to start, so no handle to clean.
-      // We should extract the restart logic.
-      attemptAutoRestart()
+    // Reuse termination logic to trigger restart if appropriate
+    // We pass a dummy 'backend' reference isn't really needed for logic check,
+    // but handleTermination expects it. However, handleTermination cleans up backend resources.
+    // Here we failed to start, so no handle to clean.
+    // We should extract the restart logic.
+    attemptAutoRestart()
   }
 
   /// Resume streaming from an existing handle (after app restart)
@@ -215,7 +219,7 @@ class RunningProcess: ObservableObject, Identifiable {
 
     startOutputStreaming(backend: backend, handle: handle, fromBeginning: fromBeginning)
     startExitMonitoring(backend: backend, handle: handle)
-    
+
     // Start file monitoring if enabled (and process is running)
     if isRunning && config.autoReloadEnabled {
       startFileMonitoring()
@@ -234,48 +238,48 @@ class RunningProcess: ObservableObject, Identifiable {
       }
     }
   }
-  
+
   private func startFileMonitoring() {
     let debounce = SettingsManager.shared.autoReloadDebounce
     let globalIncludes = SettingsManager.shared.globalAutoReloadIncludes
     let globalExcludes = SettingsManager.shared.globalAutoReloadExcludes
-    
+
     // Combine patterns
     let includes = globalIncludes + config.autoReloadIncludes
     let excludes = globalExcludes + config.autoReloadExcludes
-    
+
     // Defaults if empty (though global defaults should handle this)
     let effectiveIncludes = includes.isEmpty ? ["**/*"] : includes
-    
+
     print("RunningProcess: Starting file monitoring for \(config.workingDirectory)")
     print("  Includes: \(effectiveIncludes)")
     print("  Excludes: \(excludes)")
-    
+
     fileMonitor = FileMonitor(
-        path: config.workingDirectory,
-        debounce: debounce
+      path: config.workingDirectory,
+      debounce: debounce
     ) { [weak self] changedPaths in
-        guard let self = self else { return }
-        
-        // Check if any changed path matches criteria
-        for path in changedPaths {
-            // Check excludes first
-            let isExcluded = excludes.contains { Glob.matches(path, pattern: $0) }
-            if isExcluded { continue }
-            
-            // Check includes
-            let isIncluded = effectiveIncludes.contains { Glob.matches(path, pattern: $0) }
-            if isIncluded {
-                print("Auto-reload triggered by change in: \(path)")
-                DispatchQueue.main.async {
-                    self.panel?.appendEvent(.info, message: "File changed: \(path). Reloading...")
-                    self.onReloadRequest?()
-                }
-                return // Reload once
-            }
+      guard let self = self else { return }
+
+      // Check if any changed path matches criteria
+      for path in changedPaths {
+        // Check excludes first
+        let isExcluded = excludes.contains { Glob.matches(path, pattern: $0) }
+        if isExcluded { continue }
+
+        // Check includes
+        let isIncluded = effectiveIncludes.contains { Glob.matches(path, pattern: $0) }
+        if isIncluded {
+          print("Auto-reload triggered by change in: \(path)")
+          DispatchQueue.main.async {
+            self.panel?.appendEvent(.info, message: "File changed: \(path). Reloading...")
+            self.onReloadRequest?()
+          }
+          return  // Reload once
         }
+      }
     }
-    
+
     fileMonitor?.start()
   }
 
@@ -306,7 +310,7 @@ class RunningProcess: ObservableObject, Identifiable {
     monitorTask?.cancel()
     fileMonitor?.stop()
     fileMonitor = nil
-    resetBackoffTask?.cancel() // Process died, don't reset attempts yet
+    resetBackoffTask?.cancel()  // Process died, don't reset attempts yet
 
     // Stop the pipe reader for this process
     if let handle = handle {
@@ -318,10 +322,10 @@ class RunningProcess: ObservableObject, Identifiable {
     panel?.status = .exitedNormally
     panel?.stoppedAt = Date()
     panel?.appendEvent(.stopped, message: "Process exited")
-    
+
     attemptAutoRestart()
   }
-  
+
   private func attemptAutoRestart() {
     let settings = SettingsManager.shared
     let shouldRestart: Bool
@@ -330,31 +334,31 @@ class RunningProcess: ObservableObject, Identifiable {
     case .never: shouldRestart = false
     case .auto: shouldRestart = settings.autoRestartEnabled
     }
-    
+
     if shouldRestart {
-        // Calculate delay
-        let initial = settings.restartInitialDelay
-        let maxDelay = settings.restartMaxDelay
-        let delay = min(initial * pow(2.0, Double(restartAttempts)), maxDelay)
-        let targetTime = Date().addingTimeInterval(delay)
-        
-        print("RunningProcess: Auto-restarting in \(delay)s (attempt \(restartAttempts + 1))")
-        
-        // Update panel status to show countdown
-        DispatchQueue.main.async {
-            self.panel?.status = .restarting(target: targetTime)
+      // Calculate delay
+      let initial = settings.restartInitialDelay
+      let maxDelay = settings.restartMaxDelay
+      let delay = min(initial * pow(2.0, Double(restartAttempts)), maxDelay)
+      let targetTime = Date().addingTimeInterval(delay)
+
+      print("RunningProcess: Auto-restarting in \(delay)s (attempt \(restartAttempts + 1))")
+
+      // Update panel status to show countdown
+      DispatchQueue.main.async {
+        self.panel?.status = .restarting(target: targetTime)
+      }
+
+      Task {
+        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        await MainActor.run {
+          // Check if still in restarting state (user didn't stop it manually)
+          if case .restarting = self.panel?.status {
+            self.restartAttempts += 1
+            self.onReloadRequest?()
+          }
         }
-        
-        Task {
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            await MainActor.run {
-                // Check if still in restarting state (user didn't stop it manually)
-                if case .restarting = self.panel?.status {
-                    self.restartAttempts += 1
-                    self.onReloadRequest?()
-                }
-            }
-        }
+      }
     }
   }
 
@@ -387,7 +391,7 @@ class RunningProcess: ObservableObject, Identifiable {
           self.panel?.status = .exitedNormally
           self.panel?.stoppedAt = Date()
           if self.panel?.lines.last?.kind != .stopped {
-              self.panel?.appendEvent(.stopped, message: "Process stopped")
+            self.panel?.appendEvent(.stopped, message: "Process stopped")
           }
         }
       }

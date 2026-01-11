@@ -20,7 +20,9 @@ class HTTPServer: ObservableObject {
   /// Start the HTTP server on the configured port
   func start() {
     let configuredPort = SettingsManager.shared.httpAPIPort
-    os_log("start() called, isRunning=%{public}@, configuredPort=%{public}d", log: Logger.httpServer, type: .debug, isRunning ? "true" : "false", configuredPort)
+    os_log(
+      "start() called, isRunning=%{public}@, configuredPort=%{public}d", log: Logger.httpServer,
+      type: .debug, isRunning ? "true" : "false", configuredPort)
     guard !isRunning else { return }
 
     do {
@@ -29,7 +31,8 @@ class HTTPServer: ObservableObject {
 
       // Use the configured port
       guard let nwPort = NWEndpoint.Port(rawValue: configuredPort) else {
-        os_log("Invalid port number: %{public}d", log: Logger.httpServer, type: .error, configuredPort)
+        os_log(
+          "Invalid port number: %{public}d", log: Logger.httpServer, type: .error, configuredPort)
         return
       }
       listener = try NWListener(using: parameters, on: nwPort)
@@ -44,7 +47,9 @@ class HTTPServer: ObservableObject {
 
       listener?.start(queue: queue)
     } catch {
-      os_log("Failed to create listener: %{public}@", log: Logger.httpServer, type: .error, error.localizedDescription)
+      os_log(
+        "Failed to create listener: %{public}@", log: Logger.httpServer, type: .error,
+        error.localizedDescription)
     }
   }
 
@@ -72,10 +77,13 @@ class HTTPServer: ObservableObject {
         self.port = port
         self.url = "http://localhost:\(port)"
         self.isRunning = true
-        os_log("Listening on http://localhost:%{public}d", log: Logger.httpServer, type: .info, port)
+        os_log(
+          "Listening on http://localhost:%{public}d", log: Logger.httpServer, type: .info, port)
       }
     case .failed(let error):
-      os_log("Listener failed: %{public}@", log: Logger.httpServer, type: .error, error.localizedDescription)
+      os_log(
+        "Listener failed: %{public}@", log: Logger.httpServer, type: .error,
+        error.localizedDescription)
       isRunning = false
     case .cancelled:
       isRunning = false
@@ -98,7 +106,8 @@ class HTTPServer: ObservableObject {
   }
 
   private func receiveRequest(on connection: NWConnection) {
-    connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
+    connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) {
+      [weak self] data, _, isComplete, error in
       if let data = data, !data.isEmpty {
         self?.handleRequest(data: data, connection: connection)
       }
@@ -155,9 +164,13 @@ class HTTPServer: ObservableObject {
       handleStartProcess(body: body, connection: connection)
     } else if method == "PATCH" && pathComponents.count == 2 && pathComponents[0] == "processes" {
       handleUpdateProcess(id: pathComponents[1], body: body, connection: connection)
-    } else if method == "POST" && pathComponents.count == 3 && pathComponents[0] == "processes" && pathComponents[2] == "stop" {
+    } else if method == "POST" && pathComponents.count == 3 && pathComponents[0] == "processes"
+      && pathComponents[2] == "stop"
+    {
       handleStopProcess(id: pathComponents[1], connection: connection)
-    } else if method == "POST" && pathComponents.count == 3 && pathComponents[0] == "processes" && pathComponents[2] == "restart" {
+    } else if method == "POST" && pathComponents.count == 3 && pathComponents[0] == "processes"
+      && pathComponents[2] == "restart"
+    {
       handleRestartProcess(id: pathComponents[1], connection: connection)
     } else {
       sendResponse(connection: connection, status: 404, body: ["error": "Not found"])
@@ -192,19 +205,21 @@ class HTTPServer: ObservableObject {
 
   private func handleStartProcess(body: Data?, connection: NWConnection) {
     guard let body = body,
-          let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+      let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
     else {
       sendResponse(connection: connection, status: 400, body: ["error": "Invalid JSON body"])
       return
     }
 
     guard let command = json["command"] as? String else {
-      sendResponse(connection: connection, status: 400, body: ["error": "Missing required field: command"])
+      sendResponse(
+        connection: connection, status: 400, body: ["error": "Missing required field: command"])
       return
     }
 
     let name = json["name"] as? String ?? command.components(separatedBy: " ").first ?? "Process"
-    let workingDirectory = json["workingDirectory"] as? String ?? FileManager.default.currentDirectoryPath
+    let workingDirectory =
+      json["workingDirectory"] as? String ?? FileManager.default.currentDirectoryPath
     let shell = json["shell"] as? String ?? "/bin/zsh"
     let customId = json["id"] as? String
 
@@ -215,15 +230,18 @@ class HTTPServer: ObservableObject {
 
     DispatchQueue.main.async { [weak self] in
       guard let tilingState = WindowManager.shared.firstTilingState() else {
-        self?.sendResponse(connection: connection, status: 500, body: ["error": "No window available"])
+        self?.sendResponse(
+          connection: connection, status: 500, body: ["error": "No window available"])
         return
       }
 
       // Check for duplicate custom ID across all windows
       if let customId = customId {
         if let existingId = UUID(uuidString: customId),
-           WindowManager.shared.findPanel(id: existingId) != nil {
-          self?.sendResponse(connection: connection, status: 409, body: ["error": "Process with ID already exists"])
+          WindowManager.shared.findPanel(id: existingId) != nil
+        {
+          self?.sendResponse(
+            connection: connection, status: 409, body: ["error": "Process with ID already exists"])
           return
         }
       }
@@ -243,13 +261,16 @@ class HTTPServer: ObservableObject {
 
       // Find the panel that was just created
       if let panel = tilingState.panels.values.first(where: { $0.processConfig?.id == config.id }) {
-        self?.sendResponse(connection: connection, status: 201, body: [
-          "id": panel.id.uuidString,
-          "title": panel.title,
-          "status": panel.status.apiString
-        ])
+        self?.sendResponse(
+          connection: connection, status: 201,
+          body: [
+            "id": panel.id.uuidString,
+            "title": panel.title,
+            "status": panel.status.apiString,
+          ])
       } else {
-        self?.sendResponse(connection: connection, status: 500, body: ["error": "Failed to create process"])
+        self?.sendResponse(
+          connection: connection, status: 500, body: ["error": "Failed to create process"])
       }
     }
   }
@@ -261,7 +282,7 @@ class HTTPServer: ObservableObject {
     }
 
     guard let body = body,
-          let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+      let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
     else {
       sendResponse(connection: connection, status: 400, body: ["error": "Invalid JSON body"])
       return
@@ -269,9 +290,10 @@ class HTTPServer: ObservableObject {
 
     DispatchQueue.main.async { [weak self] in
       guard let found = WindowManager.shared.findPanel(id: uuid),
-            var config = found.panel.processConfig
+        var config = found.panel.processConfig
       else {
-        self?.sendResponse(connection: connection, status: 404, body: ["error": "Process not found"])
+        self?.sendResponse(
+          connection: connection, status: 404, body: ["error": "Process not found"])
         return
       }
 
@@ -291,7 +313,9 @@ class HTTPServer: ObservableObject {
       }
 
       // Update working directory if provided (requires restart)
-      if let workingDirectory = json["workingDirectory"] as? String, workingDirectory != config.workingDirectory {
+      if let workingDirectory = json["workingDirectory"] as? String,
+        workingDirectory != config.workingDirectory
+      {
         config = config.updating(workingDirectory: workingDirectory)
         needsRestart = true
       }
@@ -307,11 +331,13 @@ class HTTPServer: ObservableObject {
         tilingState.restartProcess(forPanelId: uuid)
       }
 
-      self?.sendResponse(connection: connection, status: 200, body: [
-        "id": panel.id.uuidString,
-        "title": panel.title,
-        "status": panel.status.apiString
-      ])
+      self?.sendResponse(
+        connection: connection, status: 200,
+        body: [
+          "id": panel.id.uuidString,
+          "title": panel.title,
+          "status": panel.status.apiString,
+        ])
     }
   }
 
@@ -323,7 +349,8 @@ class HTTPServer: ObservableObject {
 
     DispatchQueue.main.async { [weak self] in
       guard let found = WindowManager.shared.findPanel(id: uuid) else {
-        self?.sendResponse(connection: connection, status: 404, body: ["error": "Process not found"])
+        self?.sendResponse(
+          connection: connection, status: 404, body: ["error": "Process not found"])
         return
       }
 
@@ -331,10 +358,12 @@ class HTTPServer: ObservableObject {
       let tilingState = found.source
       tilingState.stopProcess(forPanelId: uuid)
 
-      self?.sendResponse(connection: connection, status: 200, body: [
-        "id": panel.id.uuidString,
-        "status": "stopped"
-      ])
+      self?.sendResponse(
+        connection: connection, status: 200,
+        body: [
+          "id": panel.id.uuidString,
+          "status": "stopped",
+        ])
     }
   }
 
@@ -346,7 +375,8 @@ class HTTPServer: ObservableObject {
 
     DispatchQueue.main.async { [weak self] in
       guard let found = WindowManager.shared.findPanel(id: uuid) else {
-        self?.sendResponse(connection: connection, status: 404, body: ["error": "Process not found"])
+        self?.sendResponse(
+          connection: connection, status: 404, body: ["error": "Process not found"])
         return
       }
 
@@ -354,10 +384,12 @@ class HTTPServer: ObservableObject {
       let tilingState = found.source
       tilingState.restartProcess(forPanelId: uuid)
 
-      self?.sendResponse(connection: connection, status: 200, body: [
-        "id": panel.id.uuidString,
-        "status": "running"
-      ])
+      self?.sendResponse(
+        connection: connection, status: 200,
+        body: [
+          "id": panel.id.uuidString,
+          "status": "running",
+        ])
     }
   }
 
@@ -376,7 +408,9 @@ class HTTPServer: ObservableObject {
     }
 
     var jsonData = Data()
-    if let data = try? JSONSerialization.data(withJSONObject: body, options: [.prettyPrinted, .sortedKeys]) {
+    if let data = try? JSONSerialization.data(
+      withJSONObject: body, options: [.prettyPrinted, .sortedKeys])
+    {
       jsonData = data
     }
 
@@ -392,9 +426,11 @@ class HTTPServer: ObservableObject {
     var responseData = response.data(using: .utf8) ?? Data()
     responseData.append(jsonData)
 
-    connection.send(content: responseData, completion: .contentProcessed { _ in
-      connection.cancel()
-    })
+    connection.send(
+      content: responseData,
+      completion: .contentProcessed { _ in
+        connection.cancel()
+      })
   }
 }
 

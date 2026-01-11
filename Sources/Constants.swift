@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// Application-wide constants
 enum Constants {

@@ -44,7 +44,7 @@ struct AutoRestartSettingsView: View {
               .foregroundColor(.secondary)
           }
         }
-        
+
         LabeledContent("Max Delay") {
           HStack {
             TextField("", value: $settingsManager.restartMaxDelay, format: .number)
@@ -54,7 +54,7 @@ struct AutoRestartSettingsView: View {
               .foregroundColor(.secondary)
           }
         }
-        
+
         LabeledContent("Reset Interval") {
           HStack {
             TextField("", value: $settingsManager.restartResetTime, format: .number)
@@ -256,13 +256,16 @@ struct GeneralSettingsView: View {
 
         if settingsManager.httpAPIEnabled {
           LabeledContent("Port") {
-            TextField("", text: Binding(
-              get: { String(settingsManager.httpAPIPort) },
-              set: { if let val = UInt16($0) { settingsManager.httpAPIPort = val } }
-            ))
-              .textFieldStyle(.roundedBorder)
-              .frame(width: 80)
-              .multilineTextAlignment(.trailing)
+            TextField(
+              "",
+              text: Binding(
+                get: { String(settingsManager.httpAPIPort) },
+                set: { if let val = UInt16($0) { settingsManager.httpAPIPort = val } }
+              )
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 80)
+            .multilineTextAlignment(.trailing)
           }
           .help("Port for the HTTP API server (requires restart)")
         }

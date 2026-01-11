@@ -138,14 +138,16 @@ struct SplitView: View {
   private func expandMinimizedChildPanels() {
     // Check first child
     if case .leaf(_, let panelId) = first,
-       let panel = tilingState.panel(for: panelId),
-       panel.isMinimized {
+      let panel = tilingState.panel(for: panelId),
+      panel.isMinimized
+    {
       tilingState.expandPanel(panelId: panelId)
     }
     // Check second child
     if case .leaf(_, let panelId) = second,
-       let panel = tilingState.panel(for: panelId),
-       panel.isMinimized {
+      let panel = tilingState.panel(for: panelId),
+      panel.isMinimized
+    {
       tilingState.expandPanel(panelId: panelId)
     }
   }

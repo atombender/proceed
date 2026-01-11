@@ -143,7 +143,7 @@ struct PanelView: View {
         return "Restarting..."
       }
     }
-  
+
     guard let startedAt = panel.startedAt else { return nil }
 
     let endTime = panel.stoppedAt ?? currentTime

@@ -44,7 +44,8 @@ final class LineSegmentCache {
     // Evict old entries if cache is too large
     if cache.count > maxCacheSize {
       // Remove entries based on eviction percentage
-      let keysToRemove = Array(cache.keys.prefix(Int(Double(maxCacheSize) * Constants.cacheEvictionPercentage)))
+      let keysToRemove = Array(
+        cache.keys.prefix(Int(Double(maxCacheSize) * Constants.cacheEvictionPercentage)))
       for key in keysToRemove {
         cache.removeValue(forKey: key)
       }

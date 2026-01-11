@@ -9,7 +9,7 @@ struct RunProcessDialog: View {
   @State private var workingDirectory: String = ""
   @State private var shell: String = ProcessConfig.defaultShell
   @State private var recentRuns: [PersistenceManager.RunHistoryEntry] = []
-  
+
   // Auto Reload state
   @State private var autoReloadEnabled: Bool = false
   @State private var autoReloadIncludes: [String] = []
@@ -89,7 +89,7 @@ struct RunProcessDialog: View {
 
         TextField("Shell:", text: $shell)
           .textFieldStyle(.roundedBorder)
-          
+
         Section("Auto Reload") {
           Toggle("Enable Auto Reload", isOn: $autoReloadEnabled)
 
@@ -219,7 +219,8 @@ struct RunProcessDialog: View {
 
   private func saveProcess() {
     guard let panelId = tilingState.editingPanelId,
-          let existingConfig = editingPanel?.processConfig else { return }
+      let existingConfig = editingPanel?.processConfig
+    else { return }
 
     // IMPORTANT: Preserve the existing config.id to maintain tmux session identity
     let newConfig = ProcessConfig(

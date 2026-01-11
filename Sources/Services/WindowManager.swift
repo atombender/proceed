@@ -259,12 +259,13 @@ class WindowManager: ObservableObject {
     for (windowId, tilingState) in windowStates {
       // Capture panel data while still holding lock
       for (panelId, panel) in tilingState.panels {
-        result.append(PanelSnapshot(
-          windowId: windowId,
-          panelId: panelId,
-          title: panel.title,
-          isRunning: panel.status == .running
-        ))
+        result.append(
+          PanelSnapshot(
+            windowId: windowId,
+            panelId: panelId,
+            title: panel.title,
+            isRunning: panel.status == .running
+          ))
       }
     }
     lock.unlock()

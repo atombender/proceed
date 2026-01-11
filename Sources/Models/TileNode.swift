@@ -266,7 +266,8 @@ enum TileNode: Identifiable, Equatable {
 
   /// Find the parent split containing a specific panel
   /// Returns (splitId, direction, isFirst) where isFirst indicates if the panel is the first child
-  func findParentSplit(panelId: UUID) -> (splitId: UUID, direction: SplitDirection, isFirst: Bool)? {
+  func findParentSplit(panelId: UUID) -> (splitId: UUID, direction: SplitDirection, isFirst: Bool)?
+  {
     switch self {
     case .leaf:
       return nil

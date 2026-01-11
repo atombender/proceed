@@ -1,5 +1,5 @@
-import SwiftUI
 import CoreServices
+import SwiftUI
 import os.log
 
 extension Notification.Name {
@@ -74,7 +74,8 @@ class SettingsManager: ObservableObject {
   @Published var globalAutoReloadExcludes: [String] = [
     "node_modules/**", "*.log", ".git/**", "*.pyc", "__pycache__/**", "*.o", "*.class", "dist/**",
     "build/**",
-  ] {
+  ]
+  {
     didSet {
       saveSettings()
     }
@@ -143,7 +144,7 @@ class SettingsManager: ObservableObject {
       if let excludes = settings.globalAutoReloadExcludes {
         self.globalAutoReloadExcludes = excludes
       }
-      
+
       // Auto Restart
       if let enabled = settings.autoRestartEnabled {
         self.autoRestartEnabled = enabled
@@ -205,186 +206,194 @@ class SettingsManager: ObservableObject {
 // MARK: - Utilities
 
 struct Glob {
-    /// Convert a glob pattern to a regex pattern
-    static func toRegexPattern(_ glob: String) -> String {
-        var pattern = "^"
-        let chars = Array(glob)
-        var i = 0
-        
-        while i < chars.count {
-            let char = chars[i]
-            
-            switch char {
-            case "*":
-                if i + 1 < chars.count && chars[i + 1] == "*" {
-                    // ** matches anything including separators
-                    pattern += ".*"
-                    i += 1 // Skip second *
-                } else {
-                    // * matches anything EXCEPT separators
-                    pattern += "[^/]*"
-                }
-            case "?":
-                pattern += "[^/]" // Match one non-separator char
-            case ".":
-                pattern += "\\."
-            case "/":
-                pattern += "/"
-            case "{", "}", "(", ")", "+", "|", "^", "$", "\\":
-                pattern += "\\" + String(char)
-            case "[":
-                // Character class
-                pattern += "["
-                i += 1
-                while i < chars.count && chars[i] != "]" {
-                    if chars[i] == "\\" {
-                        pattern += "\\"
-                        i += 1
-                    }
-                    pattern += String(chars[i])
-                    i += 1
-                }
-                if i < chars.count {
-                    pattern += "]"
-                }
-            default:
-                pattern += String(char)
-            }
+  /// Convert a glob pattern to a regex pattern
+  static func toRegexPattern(_ glob: String) -> String {
+    var pattern = "^"
+    let chars = Array(glob)
+    var i = 0
+
+    while i < chars.count {
+      let char = chars[i]
+
+      switch char {
+      case "*":
+        if i + 1 < chars.count && chars[i + 1] == "*" {
+          // ** matches anything including separators
+          pattern += ".*"
+          i += 1  // Skip second *
+        } else {
+          // * matches anything EXCEPT separators
+          pattern += "[^/]*"
+        }
+      case "?":
+        pattern += "[^/]"  // Match one non-separator char
+      case ".":
+        pattern += "\\."
+      case "/":
+        pattern += "/"
+      case "{", "}", "(", ")", "+", "|", "^", "$", "\\":
+        pattern += "\\" + String(char)
+      case "[":
+        // Character class
+        pattern += "["
+        i += 1
+        while i < chars.count && chars[i] != "]" {
+          if chars[i] == "\\" {
+            pattern += "\\"
             i += 1
+          }
+          pattern += String(chars[i])
+          i += 1
         }
-        
-        pattern += "$"
-        return pattern
-    }
-    
-    /// Check if a path matches a glob pattern
-    static func matches(_ path: String, pattern: String) -> Bool {
-        // Optimization: simple equality
-        if pattern == path { return true }
-        
-        let regexPattern = toRegexPattern(pattern)
-        guard let regex = try? NSRegularExpression(pattern: regexPattern, options: [.caseInsensitive]) else {
-            return false
+        if i < chars.count {
+          pattern += "]"
         }
-        
-        let range = NSRange(path.startIndex..., in: path)
-        return regex.firstMatch(in: path, options: [], range: range) != nil
+      default:
+        pattern += String(char)
+      }
+      i += 1
     }
+
+    pattern += "$"
+    return pattern
+  }
+
+  /// Check if a path matches a glob pattern
+  static func matches(_ path: String, pattern: String) -> Bool {
+    // Optimization: simple equality
+    if pattern == path { return true }
+
+    let regexPattern = toRegexPattern(pattern)
+    guard let regex = try? NSRegularExpression(pattern: regexPattern, options: [.caseInsensitive])
+    else {
+      return false
+    }
+
+    let range = NSRange(path.startIndex..., in: path)
+    return regex.firstMatch(in: path, options: [], range: range) != nil
+  }
 }
 
 class FileMonitor {
-    private var stream: FSEventStreamRef?
-    private let path: String
-    private let latency: TimeInterval
-    private let debounceInterval: TimeInterval
-    private let callback: ([String]) -> Void
-    private let queue = DispatchQueue(label: "com.proceed.filemonitor", qos: .utility)
-    
-    // Debounce state
-    private var debounceTimer: DispatchSourceTimer?
-    private var changedPaths: Set<String> = []
-    
-    init(path: String, latency: TimeInterval = Constants.fileWatchDebounceDelay, debounce: TimeInterval = Constants.fileWatchDebounceDelay, callback: @escaping ([String]) -> Void) {
-        self.path = path
-        self.latency = latency
-        self.debounceInterval = debounce
-        self.callback = callback
+  private var stream: FSEventStreamRef?
+  private let path: String
+  private let latency: TimeInterval
+  private let debounceInterval: TimeInterval
+  private let callback: ([String]) -> Void
+  private let queue = DispatchQueue(label: "com.proceed.filemonitor", qos: .utility)
+
+  // Debounce state
+  private var debounceTimer: DispatchSourceTimer?
+  private var changedPaths: Set<String> = []
+
+  init(
+    path: String, latency: TimeInterval = Constants.fileWatchDebounceDelay,
+    debounce: TimeInterval = Constants.fileWatchDebounceDelay,
+    callback: @escaping ([String]) -> Void
+  ) {
+    self.path = path
+    self.latency = latency
+    self.debounceInterval = debounce
+    self.callback = callback
+  }
+
+  deinit {
+    stop()
+  }
+
+  func start() {
+    print("FileMonitor: Starting watch on \(path)")
+    stop()  // Ensure stopped
+
+    var context = FSEventStreamContext(
+      version: 0,
+      info: Unmanaged.passUnretained(self).toOpaque(),
+      retain: nil,
+      release: nil,
+      copyDescription: nil
+    )
+
+    let pathsToWatch = [path] as CFArray
+
+    // kFSEventStreamCreateFlagFileEvents: Fire events for files, not just dirs
+    // kFSEventStreamCreateFlagUseCFTypes: Use CF types for paths
+    let flags = kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes
+
+    let callback: FSEventStreamCallback = {
+      (_, clientCallBackInfo, _, eventPaths, _, _) in
+      let monitor = Unmanaged<FileMonitor>.fromOpaque(clientCallBackInfo!).takeUnretainedValue()
+      guard let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] else { return }
+      monitor.handleEvents(paths: paths)
     }
-    
-    deinit {
-        stop()
+
+    guard
+      let stream = FSEventStreamCreate(
+        kCFAllocatorDefault,
+        callback,
+        &context,
+        pathsToWatch,
+        FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+        latency,
+        UInt32(flags)
+      )
+    else {
+      print("Failed to create FSEventStream")
+      return
     }
-    
-    func start() {
-        print("FileMonitor: Starting watch on \(path)")
-        stop() // Ensure stopped
-        
-        var context = FSEventStreamContext(
-            version: 0,
-            info: Unmanaged.passUnretained(self).toOpaque(),
-            retain: nil,
-            release: nil,
-            copyDescription: nil
-        )
-        
-        let pathsToWatch = [path] as CFArray
-        
-        // kFSEventStreamCreateFlagFileEvents: Fire events for files, not just dirs
-        // kFSEventStreamCreateFlagUseCFTypes: Use CF types for paths
-        let flags = kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes
-        
-        let callback: FSEventStreamCallback = { (streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds) in
-            let monitor = Unmanaged<FileMonitor>.fromOpaque(clientCallBackInfo!).takeUnretainedValue()
-            let paths = unsafeBitCast(eventPaths, to: NSArray.self) as! [String]
-            monitor.handleEvents(paths: paths)
+
+    self.stream = stream
+    FSEventStreamSetDispatchQueue(stream, queue)
+    FSEventStreamStart(stream)
+  }
+
+  func stop() {
+    if let stream = stream {
+      FSEventStreamStop(stream)
+      FSEventStreamInvalidate(stream)
+      FSEventStreamRelease(stream)
+      self.stream = nil
+    }
+    debounceTimer?.cancel()
+    debounceTimer = nil
+    changedPaths.removeAll()
+  }
+
+  private func handleEvents(paths: [String]) {
+    queue.async { [weak self] in
+      guard let self = self else { return }
+
+      for p in paths {
+        if p.hasPrefix(self.path) {
+          // Strip prefix to get relative path
+          let prefixLen = self.path.count
+          let relative = String(p.dropFirst(prefixLen))
+          let cleanRelative = relative.hasPrefix("/") ? String(relative.dropFirst()) : relative
+          self.changedPaths.insert(cleanRelative)
         }
-        
-        guard let stream = FSEventStreamCreate(
-            kCFAllocatorDefault,
-            callback,
-            &context,
-            pathsToWatch,
-            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            latency,
-            UInt32(flags)
-        ) else {
-            print("Failed to create FSEventStream")
-            return
-        }
-        
-        self.stream = stream
-        FSEventStreamSetDispatchQueue(stream, queue)
-        FSEventStreamStart(stream)
+      }
+
+      self.scheduleDebouncedCallback()
     }
-    
-    func stop() {
-        if let stream = stream {
-            FSEventStreamStop(stream)
-            FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
-            self.stream = nil
-        }
-        debounceTimer?.cancel()
-        debounceTimer = nil
-        changedPaths.removeAll()
+  }
+
+  private func scheduleDebouncedCallback() {
+    debounceTimer?.cancel()
+    let timer = DispatchSource.makeTimerSource(queue: queue)
+    timer.schedule(deadline: .now() + debounceInterval)
+    timer.setEventHandler { [weak self] in
+      self?.fireCallback()
     }
-    
-    private func handleEvents(paths: [String]) {
-        queue.async { [weak self] in
-            guard let self = self else { return }
-            
-            for p in paths {
-                if p.hasPrefix(self.path) {
-                    // Strip prefix to get relative path
-                    let prefixLen = self.path.count
-                    let relative = String(p.dropFirst(prefixLen))
-                    let cleanRelative = relative.hasPrefix("/") ? String(relative.dropFirst()) : relative
-                    self.changedPaths.insert(cleanRelative)
-                }
-            }
-            
-            self.scheduleDebouncedCallback()
-        }
-    }
-    
-    private func scheduleDebouncedCallback() {
-        debounceTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + debounceInterval)
-        timer.setEventHandler { [weak self] in
-            self?.fireCallback()
-        }
-        debounceTimer = timer
-        timer.resume()
-    }
-    
-    private func fireCallback() {
-        guard !changedPaths.isEmpty else { return }
-        let paths = Array(changedPaths)
-        changedPaths.removeAll()
-        
-        print("FileMonitor: Firing callback with \(paths.count) paths")
-        // Dispatch callback
-        callback(paths)
-    }
+    debounceTimer = timer
+    timer.resume()
+  }
+
+  private func fireCallback() {
+    guard !changedPaths.isEmpty else { return }
+    let paths = Array(changedPaths)
+    changedPaths.removeAll()
+
+    print("FileMonitor: Firing callback with \(paths.count) paths")
+    // Dispatch callback
+    callback(paths)
+  }
 }

@@ -9,7 +9,7 @@ let applicationSupportPath = FileManager.default
 func loadSettings() -> GlobalSettings? {
   let settingsPath = applicationSupportPath.appendingPathComponent("settings.json")
   guard let data = try? Data(contentsOf: settingsPath),
-        let settings = try? JSONDecoder().decode(GlobalSettings.self, from: data)
+    let settings = try? JSONDecoder().decode(GlobalSettings.self, from: data)
   else {
     return nil
   }
@@ -32,7 +32,9 @@ func getBaseURL() -> String {
 // MARK: - HTTP Client
 
 enum HTTPMethod: String {
-  case GET, POST, PATCH
+  case get = "GET"
+  case post = "POST"
+  case patch = "PATCH"
 }
 
 func makeRequest(
@@ -130,7 +132,9 @@ func printUsage() {
   print(usage)
 }
 
-func parseArgs(_ args: [String]) -> (flags: [String: String], positional: [String], arrays: [String: [String]]) {
+func parseArgs(_ args: [String]) -> (
+  flags: [String: String], positional: [String], arrays: [String: [String]]
+) {
   var flags: [String: String] = [:]
   var positional: [String] = []
   var arrays: [String: [String]] = [:]
@@ -233,7 +237,7 @@ func cmdStart(_ args: [String]) {
     body["autoReloadExcludes"] = excludes
   }
 
-  let result = makeRequest(method: .POST, path: "/processes", body: body)
+  let result = makeRequest(method: .post, path: "/processes", body: body)
 
   if let error = result.error {
     fputs("Error: \(error)\n", stderr)
@@ -241,13 +245,13 @@ func cmdStart(_ args: [String]) {
   }
 
   if result.statusCode == 201, let data = result.data,
-     let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-     let id = json["id"] as? String
+    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    let id = json["id"] as? String
   {
     print(id)
   } else if let data = result.data,
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let error = json["error"] as? String
+    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    let error = json["error"] as? String
   {
     fputs("Error: \(error)\n", stderr)
     exit(1)
@@ -287,7 +291,7 @@ func cmdUpdate(_ args: [String]) {
     exit(1)
   }
 
-  let result = makeRequest(method: .PATCH, path: "/processes/\(processId)", body: body)
+  let result = makeRequest(method: .patch, path: "/processes/\(processId)", body: body)
 
   if let error = result.error {
     fputs("Error: \(error)\n", stderr)
@@ -300,8 +304,8 @@ func cmdUpdate(_ args: [String]) {
     fputs("Error: Process not found\n", stderr)
     exit(1)
   } else if let data = result.data,
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let error = json["error"] as? String
+    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    let error = json["error"] as? String
   {
     fputs("Error: \(error)\n", stderr)
     exit(1)
@@ -318,7 +322,7 @@ func cmdStop(_ args: [String]) {
   }
 
   let processId = args[2]
-  let result = makeRequest(method: .POST, path: "/processes/\(processId)/stop")
+  let result = makeRequest(method: .post, path: "/processes/\(processId)/stop")
 
   if let error = result.error {
     fputs("Error: \(error)\n", stderr)
@@ -343,7 +347,7 @@ func cmdRestart(_ args: [String]) {
   }
 
   let processId = args[2]
-  let result = makeRequest(method: .POST, path: "/processes/\(processId)/restart")
+  let result = makeRequest(method: .post, path: "/processes/\(processId)/restart")
 
   if let error = result.error {
     fputs("Error: \(error)\n", stderr)
@@ -362,7 +366,7 @@ func cmdRestart(_ args: [String]) {
 }
 
 func cmdList(_ args: [String]) {
-  let result = makeRequest(method: .GET, path: "/processes")
+  let result = makeRequest(method: .get, path: "/processes")
 
   if let error = result.error {
     fputs("Error: \(error)\n", stderr)
@@ -371,8 +375,8 @@ func cmdList(_ args: [String]) {
   }
 
   guard result.statusCode == 200, let data = result.data,
-        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let processes = json["processes"] as? [[String: Any]]
+    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    let processes = json["processes"] as? [[String: Any]]
   else {
     fputs("Error: Failed to list processes (HTTP \(result.statusCode))\n", stderr)
     exit(1)

@@ -242,7 +242,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     menu.addItem(NSMenuItem.separator())
 
-    let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+    let settingsItem = NSMenuItem(
+      title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
     settingsItem.target = self
     menu.addItem(settingsItem)
 
@@ -300,8 +301,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func panelMenuItemClicked(_ sender: NSMenuItem) {
     guard let info = sender.representedObject as? [String: UUID],
-          let windowId = info["windowId"],
-          let panelId = info["panelId"] else { return }
+      let windowId = info["windowId"],
+      let panelId = info["panelId"]
+    else { return }
 
     WindowManager.shared.activateWindowAndFocusPanel(windowId: windowId, panelId: panelId)
   }

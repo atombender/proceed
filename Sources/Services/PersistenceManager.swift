@@ -59,7 +59,9 @@ class PersistenceManager {
     do {
       try fileManager.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
     } catch {
-      os_log("Error creating app directories: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
+      os_log(
+        "Error creating app directories: %{public}@", log: Logger.persistence, type: .error,
+        error.localizedDescription)
     }
   }
 
@@ -68,14 +70,18 @@ class PersistenceManager {
     // Open logs database
     let logsPath = logsDatabasePath.path
     if sqlite3_open(logsPath, &db) != SQLITE_OK {
-      os_log("Error opening logs database: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
+      os_log(
+        "Error opening logs database: %{public}@", log: Logger.persistence, type: .error,
+        String(cString: sqlite3_errmsg(db)))
     }
     sqlite3_exec(db, "PRAGMA journal_mode=WAL", nil, nil, nil)
 
     // Open state database
     let statePath = stateDatabasePath.path
     if sqlite3_open(statePath, &stateDb) != SQLITE_OK {
-      os_log("Error opening state database: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
+      os_log(
+        "Error opening state database: %{public}@", log: Logger.persistence, type: .error,
+        String(cString: sqlite3_errmsg(stateDb)))
     }
     sqlite3_exec(stateDb, "PRAGMA journal_mode=WAL", nil, nil, nil)
     sqlite3_exec(stateDb, "PRAGMA foreign_keys=ON", nil, nil, nil)
@@ -108,7 +114,9 @@ class PersistenceManager {
       """
 
     if sqlite3_exec(db, logsSql, nil, nil, nil) != SQLITE_OK {
-      os_log("Error creating logs tables: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
+      os_log(
+        "Error creating logs tables: %{public}@", log: Logger.persistence, type: .error,
+        String(cString: sqlite3_errmsg(db)))
     }
 
     // Migration: add kind column if it doesn't exist
@@ -155,7 +163,9 @@ class PersistenceManager {
       """
 
     if sqlite3_exec(stateDb, stateSql, nil, nil, nil) != SQLITE_OK {
-      os_log("Error creating state tables: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
+      os_log(
+        "Error creating state tables: %{public}@", log: Logger.persistence, type: .error,
+        String(cString: sqlite3_errmsg(stateDb)))
     }
 
     // Add is_minimized and remembered_ratio columns if they don't exist (migration)
@@ -180,7 +190,9 @@ class PersistenceManager {
         let count = sqlite3_column_int(stmt, 0)
         if count > 0 {
           sqlite3_finalize(stmt)
-          os_log("state.db already has %d windows, skipping migration", log: Logger.persistence, type: .debug, count)
+          os_log(
+            "state.db already has %d windows, skipping migration", log: Logger.persistence,
+            type: .debug, count)
           return
         }
       }
@@ -211,9 +223,13 @@ class PersistenceManager {
       let backupPath = multiWindowStateFilePath.appendingPathExtension("migrated")
       try? fileManager.moveItem(at: multiWindowStateFilePath, to: backupPath)
 
-      os_log("Migrated %d windows from JSON to state.db", log: Logger.persistence, type: .info, state.windows.count)
+      os_log(
+        "Migrated %d windows from JSON to state.db", log: Logger.persistence, type: .info,
+        state.windows.count)
     } catch {
-      os_log("Error migrating windows.json: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
+      os_log(
+        "Error migrating windows.json: %{public}@", log: Logger.persistence, type: .error,
+        error.localizedDescription)
     }
   }
 
@@ -248,11 +264,13 @@ class PersistenceManager {
     os_log("Migrating windows from logs.db to state.db", log: Logger.persistence, type: .info)
 
     // Copy windows
-    let windowSql = "SELECT id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, updated_at FROM windows"
+    let windowSql =
+      "SELECT id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, updated_at FROM windows"
     if sqlite3_prepare_v2(db, windowSql, -1, &stmt, nil) == SQLITE_OK {
       while sqlite3_step(stmt) == SQLITE_ROW {
         var insertStmt: OpaquePointer?
-        let insertSql = "INSERT OR REPLACE INTO windows (id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        let insertSql =
+          "INSERT OR REPLACE INTO windows (id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         if sqlite3_prepare_v2(stateDb, insertSql, -1, &insertStmt, nil) == SQLITE_OK {
           // Copy all columns
           for i: Int32 in 0..<9 {
@@ -260,7 +278,8 @@ class PersistenceManager {
             switch colType {
             case SQLITE_TEXT:
               let text = sqlite3_column_text(stmt, i)
-              sqlite3_bind_text(insertStmt, i + 1, text, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+              sqlite3_bind_text(
+                insertStmt, i + 1, text, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             case SQLITE_FLOAT:
               sqlite3_bind_double(insertStmt, i + 1, sqlite3_column_double(stmt, i))
             case SQLITE_NULL:
@@ -277,18 +296,21 @@ class PersistenceManager {
     sqlite3_finalize(stmt)
 
     // Copy panels
-    let panelSql = "SELECT id, window_id, title, handle_id, status_json, config_json, position FROM panels"
+    let panelSql =
+      "SELECT id, window_id, title, handle_id, status_json, config_json, position FROM panels"
     if sqlite3_prepare_v2(db, panelSql, -1, &stmt, nil) == SQLITE_OK {
       while sqlite3_step(stmt) == SQLITE_ROW {
         var insertStmt: OpaquePointer?
-        let insertSql = "INSERT OR REPLACE INTO panels (id, window_id, title, handle_id, status_json, config_json, position) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        let insertSql =
+          "INSERT OR REPLACE INTO panels (id, window_id, title, handle_id, status_json, config_json, position) VALUES (?, ?, ?, ?, ?, ?, ?)"
         if sqlite3_prepare_v2(stateDb, insertSql, -1, &insertStmt, nil) == SQLITE_OK {
           for i: Int32 in 0..<7 {
             let colType = sqlite3_column_type(stmt, i)
             switch colType {
             case SQLITE_TEXT:
               let text = sqlite3_column_text(stmt, i)
-              sqlite3_bind_text(insertStmt, i + 1, text, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+              sqlite3_bind_text(
+                insertStmt, i + 1, text, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             case SQLITE_INTEGER:
               sqlite3_bind_int(insertStmt, i + 1, sqlite3_column_int(stmt, i))
             case SQLITE_NULL:
@@ -336,7 +358,9 @@ class PersistenceManager {
         sqlite3_bind_int(stmt, 4, kindVal)
 
         if sqlite3_step(stmt) != SQLITE_DONE {
-          os_log("Error inserting log line: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
+          os_log(
+            "Error inserting log line: %{public}@", log: Logger.persistence, type: .error,
+            String(cString: sqlite3_errmsg(db)))
         }
       }
       sqlite3_finalize(stmt)
@@ -373,7 +397,9 @@ class PersistenceManager {
           sqlite3_bind_int(stmt, 4, kindVal)
 
           if sqlite3_step(stmt) != SQLITE_DONE {
-            os_log("Error inserting log line: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
+            os_log(
+              "Error inserting log line: %{public}@", log: Logger.persistence, type: .error,
+              String(cString: sqlite3_errmsg(db)))
           }
 
           sqlite3_reset(stmt)
@@ -425,7 +451,9 @@ class PersistenceManager {
 
       let duration = Date().timeIntervalSince(start)
       if duration > 0.1 {
-        os_log("Read %{public}d lines for panel in %.3fs", log: Logger.persistence, type: .debug, results.count, duration)
+        os_log(
+          "Read %{public}d lines for panel in %.3fs", log: Logger.persistence, type: .debug,
+          results.count, duration)
       }
 
       return results
@@ -442,7 +470,9 @@ class PersistenceManager {
 
     // Open a new read-only connection for this operation
     if sqlite3_open_v2(path, &localDb, SQLITE_OPEN_READONLY, nil) != SQLITE_OK {
-      os_log("Error opening local database connection: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(localDb)))
+      os_log(
+        "Error opening local database connection: %{public}@", log: Logger.persistence,
+        type: .error, String(cString: sqlite3_errmsg(localDb)))
       return []
     }
     defer { sqlite3_close(localDb) }
@@ -494,7 +524,9 @@ class PersistenceManager {
           stmt, 1, panelId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
         if sqlite3_step(stmt) != SQLITE_DONE {
-          os_log("Error deleting log: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
+          os_log(
+            "Error deleting log: %{public}@", log: Logger.persistence, type: .error,
+            String(cString: sqlite3_errmsg(db)))
         }
       }
       sqlite3_finalize(stmt)
@@ -536,7 +568,9 @@ class PersistenceManager {
         sqlite3_bind_double(stmt, 5, Date().timeIntervalSince1970)
 
         if sqlite3_step(stmt) != SQLITE_DONE {
-          os_log("Error recording run: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(db)))
+          os_log(
+            "Error recording run: %{public}@", log: Logger.persistence, type: .error,
+            String(cString: sqlite3_errmsg(db)))
         }
       }
       sqlite3_finalize(stmt)
@@ -665,26 +699,48 @@ class PersistenceManager {
             updated_at = excluded.updated_at
           """
         if sqlite3_prepare_v2(stateDb, windowSql, -1, &stmt, nil) == SQLITE_OK {
-          sqlite3_bind_text(stmt, 1, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-          sqlite3_bind_text(stmt, 2, windowData.lastWorkingDirectory, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_bind_text(
+            stmt, 1, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_bind_text(
+            stmt, 2, windowData.lastWorkingDirectory, -1,
+            unsafeBitCast(-1, to: sqlite3_destructor_type.self))
           if let cmd = windowData.lastCommand {
             sqlite3_bind_text(stmt, 3, cmd, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
           } else {
             sqlite3_bind_null(stmt, 3)
           }
-          if let x = windowData.frameX { sqlite3_bind_double(stmt, 4, Double(x)) } else { sqlite3_bind_null(stmt, 4) }
-          if let y = windowData.frameY { sqlite3_bind_double(stmt, 5, Double(y)) } else { sqlite3_bind_null(stmt, 5) }
-          if let w = windowData.frameWidth { sqlite3_bind_double(stmt, 6, Double(w)) } else { sqlite3_bind_null(stmt, 6) }
-          if let h = windowData.frameHeight { sqlite3_bind_double(stmt, 7, Double(h)) } else { sqlite3_bind_null(stmt, 7) }
+          if let x = windowData.frameX {
+            sqlite3_bind_double(stmt, 4, Double(x))
+          } else {
+            sqlite3_bind_null(stmt, 4)
+          }
+          if let y = windowData.frameY {
+            sqlite3_bind_double(stmt, 5, Double(y))
+          } else {
+            sqlite3_bind_null(stmt, 5)
+          }
+          if let w = windowData.frameWidth {
+            sqlite3_bind_double(stmt, 6, Double(w))
+          } else {
+            sqlite3_bind_null(stmt, 6)
+          }
+          if let h = windowData.frameHeight {
+            sqlite3_bind_double(stmt, 7, Double(h))
+          } else {
+            sqlite3_bind_null(stmt, 7)
+          }
           if let json = layoutJson {
-            sqlite3_bind_text(stmt, 8, json, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              stmt, 8, json, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
           } else {
             sqlite3_bind_null(stmt, 8)
           }
           sqlite3_bind_double(stmt, 9, now)
 
           if sqlite3_step(stmt) != SQLITE_DONE {
-            os_log("Error saving window: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
+            os_log(
+              "Error saving window: %{public}@", log: Logger.persistence, type: .error,
+              String(cString: sqlite3_errmsg(stateDb)))
           }
         }
         sqlite3_finalize(stmt)
@@ -692,29 +748,41 @@ class PersistenceManager {
         // Delete existing panels for this window
         let deletePanelsSql = "DELETE FROM panels WHERE window_id = ?"
         if sqlite3_prepare_v2(stateDb, deletePanelsSql, -1, &stmt, nil) == SQLITE_OK {
-          sqlite3_bind_text(stmt, 1, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_bind_text(
+            stmt, 1, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
           sqlite3_step(stmt)
         }
         sqlite3_finalize(stmt)
 
         // Insert panels
-        let panelSql = "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position, is_minimized, remembered_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        let panelSql =
+          "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position, is_minimized, remembered_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         for (position, panel) in windowData.panels.enumerated() {
-          let statusJson = (try? encoder.encode(panel.status)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-          let configJson = panel.processConfig.flatMap { try? encoder.encode($0) }.flatMap { String(data: $0, encoding: .utf8) }
+          let statusJson =
+            (try? encoder.encode(panel.status)).flatMap { String(data: $0, encoding: .utf8) }
+            ?? "{}"
+          let configJson = panel.processConfig.flatMap { try? encoder.encode($0) }.flatMap {
+            String(data: $0, encoding: .utf8)
+          }
 
           if sqlite3_prepare_v2(stateDb, panelSql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, panel.id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 2, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-            sqlite3_bind_text(stmt, 3, panel.title, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              stmt, 1, panel.id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              stmt, 2, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              stmt, 3, panel.title, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             if let handleId = panel.handleId {
-              sqlite3_bind_text(stmt, 4, handleId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+              sqlite3_bind_text(
+                stmt, 4, handleId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             } else {
               sqlite3_bind_null(stmt, 4)
             }
-            sqlite3_bind_text(stmt, 5, statusJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              stmt, 5, statusJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             if let cJson = configJson {
-              sqlite3_bind_text(stmt, 6, cJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+              sqlite3_bind_text(
+                stmt, 6, cJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
             } else {
               sqlite3_bind_null(stmt, 6)
             }
@@ -727,7 +795,9 @@ class PersistenceManager {
             }
 
             if sqlite3_step(stmt) != SQLITE_DONE {
-              os_log("Error saving panel: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
+              os_log(
+                "Error saving panel: %{public}@", log: Logger.persistence, type: .error,
+                String(cString: sqlite3_errmsg(stateDb)))
             }
           }
           sqlite3_finalize(stmt)
@@ -739,7 +809,9 @@ class PersistenceManager {
       // This prevents data loss if a window fails to restore during startup.
 
       sqlite3_exec(stateDb, "COMMIT", nil, nil, nil)
-      os_log("Saved multi-window state to SQLite (%d windows)", log: Logger.persistence, type: .debug, state.windows.count)
+      os_log(
+        "Saved multi-window state to SQLite (%d windows)", log: Logger.persistence, type: .debug,
+        state.windows.count)
     }
   }
 
@@ -779,17 +851,36 @@ class PersistenceManager {
         """
       var stmt: OpaquePointer?
       if sqlite3_prepare_v2(stateDb, windowSql, -1, &stmt, nil) == SQLITE_OK {
-        sqlite3_bind_text(stmt, 1, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_text(stmt, 2, windowData.lastWorkingDirectory, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 1, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 2, windowData.lastWorkingDirectory, -1,
+          unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         if let cmd = windowData.lastCommand {
           sqlite3_bind_text(stmt, 3, cmd, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         } else {
           sqlite3_bind_null(stmt, 3)
         }
-        if let x = windowData.frameX { sqlite3_bind_double(stmt, 4, Double(x)) } else { sqlite3_bind_null(stmt, 4) }
-        if let y = windowData.frameY { sqlite3_bind_double(stmt, 5, Double(y)) } else { sqlite3_bind_null(stmt, 5) }
-        if let w = windowData.frameWidth { sqlite3_bind_double(stmt, 6, Double(w)) } else { sqlite3_bind_null(stmt, 6) }
-        if let h = windowData.frameHeight { sqlite3_bind_double(stmt, 7, Double(h)) } else { sqlite3_bind_null(stmt, 7) }
+        if let x = windowData.frameX {
+          sqlite3_bind_double(stmt, 4, Double(x))
+        } else {
+          sqlite3_bind_null(stmt, 4)
+        }
+        if let y = windowData.frameY {
+          sqlite3_bind_double(stmt, 5, Double(y))
+        } else {
+          sqlite3_bind_null(stmt, 5)
+        }
+        if let w = windowData.frameWidth {
+          sqlite3_bind_double(stmt, 6, Double(w))
+        } else {
+          sqlite3_bind_null(stmt, 6)
+        }
+        if let h = windowData.frameHeight {
+          sqlite3_bind_double(stmt, 7, Double(h))
+        } else {
+          sqlite3_bind_null(stmt, 7)
+        }
         if let json = layoutJson {
           sqlite3_bind_text(stmt, 8, json, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         } else {
@@ -798,29 +889,41 @@ class PersistenceManager {
         sqlite3_bind_double(stmt, 9, now)
 
         if sqlite3_step(stmt) != SQLITE_DONE {
-          os_log("Error saving window: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
+          os_log(
+            "Error saving window: %{public}@", log: Logger.persistence, type: .error,
+            String(cString: sqlite3_errmsg(stateDb)))
         }
       }
       sqlite3_finalize(stmt)
 
       // Insert panels
-      let panelSql = "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position, is_minimized, remembered_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      let panelSql =
+        "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position, is_minimized, remembered_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
       for (position, panel) in windowData.panels.enumerated() {
-        let statusJson = (try? encoder.encode(panel.status)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        let configJson = panel.processConfig.flatMap { try? encoder.encode($0) }.flatMap { String(data: $0, encoding: .utf8) }
+        let statusJson =
+          (try? encoder.encode(panel.status)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        let configJson = panel.processConfig.flatMap { try? encoder.encode($0) }.flatMap {
+          String(data: $0, encoding: .utf8)
+        }
 
         if sqlite3_prepare_v2(stateDb, panelSql, -1, &stmt, nil) == SQLITE_OK {
-          sqlite3_bind_text(stmt, 1, panel.id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-          sqlite3_bind_text(stmt, 2, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-          sqlite3_bind_text(stmt, 3, panel.title, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_bind_text(
+            stmt, 1, panel.id.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_bind_text(
+            stmt, 2, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_bind_text(
+            stmt, 3, panel.title, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
           if let handleId = panel.handleId {
-            sqlite3_bind_text(stmt, 4, handleId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              stmt, 4, handleId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
           } else {
             sqlite3_bind_null(stmt, 4)
           }
-          sqlite3_bind_text(stmt, 5, statusJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_bind_text(
+            stmt, 5, statusJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
           if let cJson = configJson {
-            sqlite3_bind_text(stmt, 6, cJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              stmt, 6, cJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
           } else {
             sqlite3_bind_null(stmt, 6)
           }
@@ -833,7 +936,9 @@ class PersistenceManager {
           }
 
           if sqlite3_step(stmt) != SQLITE_DONE {
-            os_log("Error saving panel: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
+            os_log(
+              "Error saving panel: %{public}@", log: Logger.persistence, type: .error,
+              String(cString: sqlite3_errmsg(stateDb)))
           }
         }
         sqlite3_finalize(stmt)
@@ -841,7 +946,8 @@ class PersistenceManager {
     }
 
     sqlite3_exec(stateDb, "COMMIT", nil, nil, nil)
-    os_log("Migrated %d windows to state.db", log: Logger.persistence, type: .info, state.windows.count)
+    os_log(
+      "Migrated %d windows to state.db", log: Logger.persistence, type: .info, state.windows.count)
   }
 
   /// Load multi-window state from SQLite
@@ -853,40 +959,55 @@ class PersistenceManager {
       var windows: [WindowStateData] = []
 
       // Load windows
-      let windowSql = "SELECT id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json FROM windows ORDER BY updated_at DESC"
+      let windowSql =
+        "SELECT id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json FROM windows ORDER BY updated_at DESC"
       var stmt: OpaquePointer?
 
       if sqlite3_prepare_v2(stateDb, windowSql, -1, &stmt, nil) == SQLITE_OK {
         while sqlite3_step(stmt) == SQLITE_ROW {
           guard let idPtr = sqlite3_column_text(stmt, 0),
-                let dirPtr = sqlite3_column_text(stmt, 1) else { continue }
+            let dirPtr = sqlite3_column_text(stmt, 1)
+          else { continue }
 
           let windowId = UUID(uuidString: String(cString: idPtr)) ?? UUID()
           let lastDir = String(cString: dirPtr)
           let lastCmd = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
-          let frameX = sqlite3_column_type(stmt, 3) != SQLITE_NULL ? CGFloat(sqlite3_column_double(stmt, 3)) : nil
-          let frameY = sqlite3_column_type(stmt, 4) != SQLITE_NULL ? CGFloat(sqlite3_column_double(stmt, 4)) : nil
-          let frameWidth = sqlite3_column_type(stmt, 5) != SQLITE_NULL ? CGFloat(sqlite3_column_double(stmt, 5)) : nil
-          let frameHeight = sqlite3_column_type(stmt, 6) != SQLITE_NULL ? CGFloat(sqlite3_column_double(stmt, 6)) : nil
+          let frameX =
+            sqlite3_column_type(stmt, 3) != SQLITE_NULL
+            ? CGFloat(sqlite3_column_double(stmt, 3)) : nil
+          let frameY =
+            sqlite3_column_type(stmt, 4) != SQLITE_NULL
+            ? CGFloat(sqlite3_column_double(stmt, 4)) : nil
+          let frameWidth =
+            sqlite3_column_type(stmt, 5) != SQLITE_NULL
+            ? CGFloat(sqlite3_column_double(stmt, 5)) : nil
+          let frameHeight =
+            sqlite3_column_type(stmt, 6) != SQLITE_NULL
+            ? CGFloat(sqlite3_column_double(stmt, 6)) : nil
 
           var layout: LayoutNode? = nil
           if let layoutPtr = sqlite3_column_text(stmt, 7),
-             let layoutData = String(cString: layoutPtr).data(using: .utf8) {
+            let layoutData = String(cString: layoutPtr).data(using: .utf8)
+          {
             layout = try? decoder.decode(LayoutNode.self, from: layoutData)
           }
 
           // Load panels for this window
           var panels: [PanelState] = []
-          let panelSql = "SELECT id, title, handle_id, status_json, config_json, is_minimized, remembered_ratio FROM panels WHERE window_id = ? ORDER BY position"
+          let panelSql =
+            "SELECT id, title, handle_id, status_json, config_json, is_minimized, remembered_ratio FROM panels WHERE window_id = ? ORDER BY position"
           var panelStmt: OpaquePointer?
 
           if sqlite3_prepare_v2(stateDb, panelSql, -1, &panelStmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(panelStmt, 1, windowId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              panelStmt, 1, windowId.uuidString, -1,
+              unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
             while sqlite3_step(panelStmt) == SQLITE_ROW {
               guard let panelIdPtr = sqlite3_column_text(panelStmt, 0),
-                    let titlePtr = sqlite3_column_text(panelStmt, 1),
-                    let statusPtr = sqlite3_column_text(panelStmt, 3) else { continue }
+                let titlePtr = sqlite3_column_text(panelStmt, 1),
+                let statusPtr = sqlite3_column_text(panelStmt, 3)
+              else { continue }
 
               let panelId = UUID(uuidString: String(cString: panelIdPtr)) ?? UUID()
               let title = String(cString: titlePtr)
@@ -894,7 +1015,8 @@ class PersistenceManager {
 
               let status: PanelStatusState
               if let statusData = String(cString: statusPtr).data(using: .utf8),
-                 let decoded = try? decoder.decode(PanelStatusState.self, from: statusData) {
+                let decoded = try? decoder.decode(PanelStatusState.self, from: statusData)
+              {
                 status = decoded
               } else {
                 status = .exitedNormally
@@ -902,31 +1024,40 @@ class PersistenceManager {
 
               var config: ProcessConfigState? = nil
               if let configPtr = sqlite3_column_text(panelStmt, 4),
-                 let configData = String(cString: configPtr).data(using: .utf8) {
+                let configData = String(cString: configPtr).data(using: .utf8)
+              {
                 config = try? decoder.decode(ProcessConfigState.self, from: configData)
               }
 
               // Read minimize state (column 5) - defaults to false if NULL or missing
-              let isMinimized = sqlite3_column_type(panelStmt, 5) != SQLITE_NULL ? sqlite3_column_int(panelStmt, 5) != 0 : false
+              let isMinimized =
+                sqlite3_column_type(panelStmt, 5) != SQLITE_NULL
+                ? sqlite3_column_int(panelStmt, 5) != 0 : false
               // Read remembered ratio (column 6) - nil if NULL
-              let rememberedRatio: CGFloat? = sqlite3_column_type(panelStmt, 6) != SQLITE_NULL ? CGFloat(sqlite3_column_double(panelStmt, 6)) : nil
+              let rememberedRatio: CGFloat? =
+                sqlite3_column_type(panelStmt, 6) != SQLITE_NULL
+                ? CGFloat(sqlite3_column_double(panelStmt, 6)) : nil
 
-              panels.append(PanelState(id: panelId, title: title, processConfig: config, status: status, handleId: handleId, isMinimized: isMinimized, rememberedRatio: rememberedRatio))
+              panels.append(
+                PanelState(
+                  id: panelId, title: title, processConfig: config, status: status,
+                  handleId: handleId, isMinimized: isMinimized, rememberedRatio: rememberedRatio))
             }
           }
           sqlite3_finalize(panelStmt)
 
-          windows.append(WindowStateData(
-            windowId: windowId,
-            panels: panels,
-            layout: layout,
-            lastWorkingDirectory: lastDir,
-            lastCommand: lastCmd,
-            frameX: frameX,
-            frameY: frameY,
-            frameWidth: frameWidth,
-            frameHeight: frameHeight
-          ))
+          windows.append(
+            WindowStateData(
+              windowId: windowId,
+              panels: panels,
+              layout: layout,
+              lastWorkingDirectory: lastDir,
+              lastCommand: lastCmd,
+              frameX: frameX,
+              frameY: frameY,
+              frameWidth: frameWidth,
+              frameHeight: frameHeight
+            ))
         }
       }
       sqlite3_finalize(stmt)
@@ -935,7 +1066,9 @@ class PersistenceManager {
         return nil
       }
 
-      os_log("Loaded multi-window state from SQLite (%d windows)", log: Logger.persistence, type: .debug, windows.count)
+      os_log(
+        "Loaded multi-window state from SQLite (%d windows)", log: Logger.persistence, type: .debug,
+        windows.count)
       return MultiWindowState(windows: windows)
     }
   }
@@ -950,9 +1083,12 @@ class PersistenceManager {
       var stmt: OpaquePointer?
 
       if sqlite3_prepare_v2(stateDb, sql, -1, &stmt, nil) == SQLITE_OK {
-        sqlite3_bind_text(stmt, 1, windowId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 1, windowId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         if sqlite3_step(stmt) == SQLITE_DONE {
-          os_log("Deleted window %{public}@ from state.db", log: Logger.persistence, type: .debug, windowId.uuidString)
+          os_log(
+            "Deleted window %{public}@ from state.db", log: Logger.persistence, type: .debug,
+            windowId.uuidString)
         }
       }
       sqlite3_finalize(stmt)
@@ -969,7 +1105,9 @@ class PersistenceManager {
       let data = try encoder.encode(settings)
       try data.write(to: settingsFilePath)
     } catch {
-      os_log("Error saving settings: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
+      os_log(
+        "Error saving settings: %{public}@", log: Logger.persistence, type: .error,
+        error.localizedDescription)
     }
   }
 
@@ -984,7 +1122,9 @@ class PersistenceManager {
       let decoder = JSONDecoder()
       return try decoder.decode(GlobalSettings.self, from: data)
     } catch {
-      os_log("Error loading settings: %{public}@", log: Logger.persistence, type: .error, error.localizedDescription)
+      os_log(
+        "Error loading settings: %{public}@", log: Logger.persistence, type: .error,
+        error.localizedDescription)
       return nil
     }
   }
@@ -994,7 +1134,8 @@ class PersistenceManager {
   /// Start periodic cleanup timer
   private func startCleanupTimer() {
     let timer = DispatchSource.makeTimerSource(queue: dbQueue)
-    timer.schedule(deadline: .now() + 60, repeating: Constants.logCleanupIntervalSeconds)  // Start after 1 min, repeat based on constant
+    // Start after 1 min, repeat based on constant
+    timer.schedule(deadline: .now() + 60, repeating: Constants.logCleanupIntervalSeconds)
     timer.setEventHandler { [weak self] in
       self?.performRetentionCleanup()
     }
@@ -1029,7 +1170,9 @@ class PersistenceManager {
     } while deletedThisBatch == batchSize
 
     if totalDeleted > 0 {
-      os_log("Log retention cleanup: deleted %{public}d old entries", log: Logger.persistence, type: .info, totalDeleted)
+      os_log(
+        "Log retention cleanup: deleted %{public}d old entries", log: Logger.persistence,
+        type: .info, totalDeleted)
     }
   }
 
