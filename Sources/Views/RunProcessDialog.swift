@@ -18,6 +18,9 @@ struct RunProcessDialog: View {
   // Output filters state
   @State private var outputExcludeFilters: [String] = []
 
+  // Highlight patterns state
+  @State private var highlightPatterns: [String] = []
+
   /// The panel being edited (nil for new process)
   private var editingPanel: Panel? {
     guard let panelId = tilingState.editingPanelId else { return nil }
@@ -104,6 +107,12 @@ struct RunProcessDialog: View {
             StringListEditor(strings: $outputExcludeFilters, placeholder: "e.g. ^DEBUG:")
           }
         }
+
+        Section("Highlighting") {
+          LabeledContent("Highlight Patterns (Regex):") {
+            StringListEditor(strings: $highlightPatterns, placeholder: "e.g. ERROR|WARN")
+          }
+        }
       }
       .padding()
 
@@ -144,6 +153,7 @@ struct RunProcessDialog: View {
         autoReloadIncludes = config.autoReloadIncludes
         autoReloadExcludes = config.autoReloadExcludes
         outputExcludeFilters = config.outputExcludeFilters
+        highlightPatterns = config.highlightPatterns
         print("RunProcessDialog: Editing panel. AutoReloadEnabled: \(autoReloadEnabled)")
       } else {
         // New process mode - use last values and load recent runs
@@ -199,7 +209,8 @@ struct RunProcessDialog: View {
       autoReloadEnabled: autoReloadEnabled,
       autoReloadIncludes: autoReloadIncludes,
       autoReloadExcludes: autoReloadExcludes,
-      outputExcludeFilters: outputExcludeFilters
+      outputExcludeFilters: outputExcludeFilters,
+      highlightPatterns: highlightPatterns
     )
 
     tilingState.runProcess(config: config)
@@ -220,7 +231,8 @@ struct RunProcessDialog: View {
       autoReloadEnabled: autoReloadEnabled,
       autoReloadIncludes: autoReloadIncludes,
       autoReloadExcludes: autoReloadExcludes,
-      outputExcludeFilters: outputExcludeFilters
+      outputExcludeFilters: outputExcludeFilters,
+      highlightPatterns: highlightPatterns
     )
 
     tilingState.updateProcess(forPanelId: panelId, newConfig: newConfig)

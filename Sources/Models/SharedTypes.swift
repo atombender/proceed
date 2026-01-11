@@ -122,6 +122,7 @@ struct ProcessConfigState: Codable {
   var autoReloadExcludes: [String]?
   var autoRestart: AutoRestartMode?
   var outputExcludeFilters: [String]?
+  var highlightPatterns: [String]?
 }
 
 /// Persisted panel status

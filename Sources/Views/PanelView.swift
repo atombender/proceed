@@ -317,6 +317,7 @@ struct PanelView: View {
         lines: filteredLines,
         font: NSFont.monospacedSystemFont(ofSize: settingsManager.fontSize, weight: .regular),
         gutterWidth: 85,
+        highlightPatterns: panel.processConfig?.highlightPatterns ?? [],
         onClicked: {
           tilingState.focusedPanelId = panel.id
         },

@@ -96,7 +96,8 @@ class TilingState: ObservableObject {
           autoReloadIncludes: configState.autoReloadIncludes ?? [],
           autoReloadExcludes: configState.autoReloadExcludes ?? [],
           autoRestart: configState.autoRestart ?? .auto,
-          outputExcludeFilters: configState.outputExcludeFilters ?? []
+          outputExcludeFilters: configState.outputExcludeFilters ?? [],
+          highlightPatterns: configState.highlightPatterns ?? []
         )
         if processConfig?.autoReloadEnabled == true {
             print("TilingState: Restored auto-reload ENABLED for \(configState.name)")
@@ -404,7 +405,8 @@ class TilingState: ObservableObject {
       autoReloadIncludes: oldConfig.autoReloadIncludes,
       autoReloadExcludes: oldConfig.autoReloadExcludes,
       autoRestart: oldConfig.autoRestart,
-      outputExcludeFilters: oldConfig.outputExcludeFilters
+      outputExcludeFilters: oldConfig.outputExcludeFilters,
+      highlightPatterns: oldConfig.highlightPatterns
     )
 
     // Update panel's config and tmuxHandleId
@@ -928,6 +930,7 @@ class TilingState: ObservableObject {
       var processConfig: ProcessConfig? = nil
       if let configState = panelState.processConfig {
         processConfig = ProcessConfig(
+          id: configState.id ?? UUID(),  // Use saved ID for tmux reconnection, or generate new
           name: configState.name,
           command: configState.command,
           workingDirectory: configState.workingDirectory,
@@ -936,7 +939,8 @@ class TilingState: ObservableObject {
           autoReloadIncludes: configState.autoReloadIncludes ?? [],
           autoReloadExcludes: configState.autoReloadExcludes ?? [],
           autoRestart: configState.autoRestart ?? .auto,
-          outputExcludeFilters: configState.outputExcludeFilters ?? []
+          outputExcludeFilters: configState.outputExcludeFilters ?? [],
+          highlightPatterns: configState.highlightPatterns ?? []
         )
       }
 

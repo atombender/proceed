@@ -43,6 +43,19 @@ final class LogContentView: NSView {
     didSet { updateFontMetrics() }
   }
 
+  /// Regex patterns for highlighting
+  var highlightPatterns: [String] = [] {
+    didSet {
+      // Compile regexes and invalidate cache when patterns change
+      compiledHighlightPatterns = highlightPatterns.compactMap { pattern in
+        try? NSRegularExpression(pattern: pattern, options: [])
+      }
+      attrStringCache.removeAll()
+      needsDisplay = true
+    }
+  }
+  private var compiledHighlightPatterns: [NSRegularExpression] = []
+
   private func updateFontMetrics() {
     // Calculate monospace character width and line height once
     let attrs: [NSAttributedString.Key: Any] = [.font: font]
@@ -368,7 +381,31 @@ final class LogContentView: NSView {
       }
     }
 
+    // Apply highlight patterns
+    applyHighlighting(to: attrString)
+
     return attrString
+  }
+
+  /// Apply highlight background to all regex matches in the attributed string
+  private func applyHighlighting(to attrString: NSMutableAttributedString) {
+    guard !compiledHighlightPatterns.isEmpty else { return }
+
+    let text = attrString.string
+    let fullRange = NSRange(location: 0, length: text.utf16.count)
+
+    // Bright highlight color - yellow with high visibility
+    let highlightColor = NSColor.systemYellow.withAlphaComponent(0.7)
+    // Use black text for contrast on yellow background
+    let highlightTextColor = NSColor.black
+
+    for regex in compiledHighlightPatterns {
+      let matches = regex.matches(in: text, options: [], range: fullRange)
+      for match in matches {
+        attrString.addAttribute(.backgroundColor, value: highlightColor, range: match.range)
+        attrString.addAttribute(.foregroundColor, value: highlightTextColor, range: match.range)
+      }
+    }
   }
 
   func clearSelection() {
@@ -1102,6 +1139,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
   let lines: [OutputLine]
   let font: NSFont
   let gutterWidth: CGFloat
+  let highlightPatterns: [String]
   var onClicked: (() -> Void)?
 
   @Binding var scrollToBottom: Bool
@@ -1118,6 +1156,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     let contentView = LogContentView()
     contentView.font = font
     contentView.gutterWidth = gutterWidth
+    contentView.highlightPatterns = highlightPatterns
     contentView.onClicked = onClicked
     // Don't set lines yet - wait until view is sized
     // Suppress drawing until initial scroll completes
@@ -1197,6 +1236,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
 
     contentView.font = font
     contentView.gutterWidth = gutterWidth
+    contentView.highlightPatterns = highlightPatterns
 
     // Update coordinator's reference to isTailing binding
     context.coordinator.isTailingBinding = _isTailing

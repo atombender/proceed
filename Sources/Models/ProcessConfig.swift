@@ -12,6 +12,7 @@ struct ProcessConfig: Identifiable, Equatable {
   var autoReloadExcludes: [String]
   var autoRestart: AutoRestartMode
   var outputExcludeFilters: [String]
+  var highlightPatterns: [String]
 
   init(
     id: UUID = UUID(),
@@ -23,7 +24,8 @@ struct ProcessConfig: Identifiable, Equatable {
     autoReloadIncludes: [String] = [],
     autoReloadExcludes: [String] = [],
     autoRestart: AutoRestartMode = .auto,
-    outputExcludeFilters: [String] = []
+    outputExcludeFilters: [String] = [],
+    highlightPatterns: [String] = []
   ) {
     self.id = id
     self.name = name
@@ -35,6 +37,7 @@ struct ProcessConfig: Identifiable, Equatable {
     self.autoReloadExcludes = autoReloadExcludes
     self.autoRestart = autoRestart
     self.outputExcludeFilters = outputExcludeFilters
+    self.highlightPatterns = highlightPatterns
   }
 
   /// Display name for the panel title bar
@@ -61,7 +64,8 @@ struct ProcessConfig: Identifiable, Equatable {
     autoReloadEnabled: Bool? = nil,
     autoReloadIncludes: [String]? = nil,
     autoReloadExcludes: [String]? = nil,
-    autoRestart: AutoRestartMode? = nil
+    autoRestart: AutoRestartMode? = nil,
+    highlightPatterns: [String]? = nil
   ) -> ProcessConfig {
     ProcessConfig(
       id: self.id,
@@ -72,7 +76,9 @@ struct ProcessConfig: Identifiable, Equatable {
       autoReloadEnabled: autoReloadEnabled ?? self.autoReloadEnabled,
       autoReloadIncludes: autoReloadIncludes ?? self.autoReloadIncludes,
       autoReloadExcludes: autoReloadExcludes ?? self.autoReloadExcludes,
-      autoRestart: autoRestart ?? self.autoRestart
+      autoRestart: autoRestart ?? self.autoRestart,
+      outputExcludeFilters: self.outputExcludeFilters,
+      highlightPatterns: highlightPatterns ?? self.highlightPatterns
     )
   }
 }

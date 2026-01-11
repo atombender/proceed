@@ -132,7 +132,8 @@ class WindowManager: ObservableObject {
             autoReloadIncludes: $0.autoReloadIncludes,
             autoReloadExcludes: $0.autoReloadExcludes,
             autoRestart: $0.autoRestart,
-            outputExcludeFilters: $0.outputExcludeFilters
+            outputExcludeFilters: $0.outputExcludeFilters,
+            highlightPatterns: $0.highlightPatterns
           )
         }
 
