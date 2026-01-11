@@ -327,7 +327,7 @@ final class LogContentView: NSView {
         .font: italicFont,
         .foregroundColor: color,
       ]
-      return NSAttributedString(string: line.rawText, attributes: attrs)
+      return NSAttributedString(string: "● " + line.rawText, attributes: attrs)
     }
 
     let attrString = NSMutableAttributedString()
