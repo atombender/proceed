@@ -93,7 +93,9 @@ class TilingState: ObservableObject {
           shell: configState.shell,
           autoReloadEnabled: configState.autoReloadEnabled ?? false,
           autoReloadIncludes: configState.autoReloadIncludes ?? [],
-          autoReloadExcludes: configState.autoReloadExcludes ?? []
+          autoReloadExcludes: configState.autoReloadExcludes ?? [],
+          autoRestart: configState.autoRestart ?? .auto,
+          outputExcludeFilters: configState.outputExcludeFilters ?? []
         )
         if processConfig?.autoReloadEnabled == true {
             print("TilingState: Restored auto-reload ENABLED for \(configState.name)")
@@ -809,7 +811,9 @@ class TilingState: ObservableObject {
           shell: configState.shell,
           autoReloadEnabled: configState.autoReloadEnabled ?? false,
           autoReloadIncludes: configState.autoReloadIncludes ?? [],
-          autoReloadExcludes: configState.autoReloadExcludes ?? []
+          autoReloadExcludes: configState.autoReloadExcludes ?? [],
+          autoRestart: configState.autoRestart ?? .auto,
+          outputExcludeFilters: configState.outputExcludeFilters ?? []
         )
       }
 

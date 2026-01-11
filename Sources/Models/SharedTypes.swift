@@ -76,6 +76,22 @@ enum AppTheme: String, Codable, CaseIterable, Identifiable {
   var id: String { rawValue }
 }
 
+enum AutoRestartMode: String, Codable, CaseIterable, Identifiable {
+  case auto  // Follow global setting
+  case always
+  case never
+
+  var id: String { rawValue }
+
+  var displayName: String {
+    switch self {
+    case .auto: return "Auto (Global)"
+    case .always: return "Always"
+    case .never: return "Never"
+    }
+  }
+}
+
 enum RetentionUnit: String, Codable {
   case hours
   case days
@@ -101,6 +117,8 @@ struct ProcessConfigState: Codable {
   var autoReloadEnabled: Bool?
   var autoReloadIncludes: [String]?
   var autoReloadExcludes: [String]?
+  var autoRestart: AutoRestartMode?
+  var outputExcludeFilters: [String]?
 }
 
 /// Persisted panel status

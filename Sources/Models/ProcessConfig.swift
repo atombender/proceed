@@ -1,21 +1,5 @@
 import Foundation
 
-enum AutoRestartMode: String, Codable, CaseIterable, Identifiable {
-  case auto  // Follow global setting
-  case always
-  case never
-
-  var id: String { rawValue }
-  
-  var displayName: String {
-    switch self {
-    case .auto: return "Auto (Global)"
-    case .always: return "Always"
-    case .never: return "Never"
-    }
-  }
-}
-
 /// Configuration for a process to run
 struct ProcessConfig: Identifiable, Equatable {
   let id: UUID

@@ -109,7 +109,9 @@ class WindowManager: ObservableObject {
             shell: $0.shell,
             autoReloadEnabled: $0.autoReloadEnabled,
             autoReloadIncludes: $0.autoReloadIncludes,
-            autoReloadExcludes: $0.autoReloadExcludes
+            autoReloadExcludes: $0.autoReloadExcludes,
+            autoRestart: $0.autoRestart,
+            outputExcludeFilters: $0.outputExcludeFilters
           )
         }
 

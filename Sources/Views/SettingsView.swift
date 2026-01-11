@@ -123,50 +123,79 @@ struct AutoReloadSettingsView: View {
 struct StringListEditor: View {
   @Binding var strings: [String]
   let placeholder: String
-  @State private var newEntry: String = ""
+  @State private var selection: Set<UUID> = []
+  @State private var items: [EditableItem] = []
+
+  // Wrapper to give each string a stable ID for editing
+  private struct EditableItem: Identifiable {
+    let id = UUID()
+    var value: String
+  }
 
   var body: some View {
     VStack(spacing: 6) {
-      List {
-        ForEach(Array(strings.enumerated()), id: \.offset) { index, str in
-          HStack {
-            Text(str)
-              .font(.system(.body, design: .monospaced))
-            Spacer()
-            Button(action: {
-              if index < strings.count {
-                strings.remove(at: index)
-              }
-            }) {
-              Image(systemName: "minus.circle.fill")
-                .foregroundColor(.secondary)
+      List(selection: $selection) {
+        ForEach($items) { $item in
+          TextField("", text: $item.value)
+            .textFieldStyle(.plain)
+            .font(.system(.body, design: .monospaced))
+            .onSubmit {
+              syncToBinding()
             }
-            .buttonStyle(.plain)
-          }
+        }
+        .onDelete { indexSet in
+          items.remove(atOffsets: indexSet)
+          syncToBinding()
         }
       }
       .frame(height: 100)
       .border(Color.gray.opacity(0.2))
       .background(Color(NSColor.controlBackgroundColor))
+      .onAppear {
+        syncFromBinding()
+      }
+      .onChange(of: strings) { _ in
+        syncFromBinding()
+      }
 
       HStack {
-        TextField(placeholder, text: $newEntry)
-          .textFieldStyle(.roundedBorder)
-          .onSubmit(addEntry)
-
         Button(action: addEntry) {
           Image(systemName: "plus")
         }
-        .disabled(newEntry.isEmpty)
+
+        Button(action: removeSelected) {
+          Image(systemName: "minus")
+        }
+        .disabled(selection.isEmpty)
+
+        Spacer()
       }
     }
   }
 
+  private func syncFromBinding() {
+    // Only sync if the content has changed to avoid disrupting editing
+    let currentValues = items.map { $0.value }
+    if currentValues != strings {
+      items = strings.map { EditableItem(value: $0) }
+    }
+  }
+
+  private func syncToBinding() {
+    let trimmed = items.map { $0.value.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+    strings = trimmed
+  }
+
   private func addEntry() {
-    let trimmed = newEntry.trimmingCharacters(in: .whitespaces)
-    guard !trimmed.isEmpty else { return }
-    strings.append(trimmed)
-    newEntry = ""
+    items.append(EditableItem(value: placeholder))
+    syncToBinding()
+  }
+
+  private func removeSelected() {
+    items.removeAll { selection.contains($0.id) }
+    selection.removeAll()
+    syncToBinding()
   }
 }
 

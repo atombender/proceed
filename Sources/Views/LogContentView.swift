@@ -24,6 +24,21 @@ final class LogContentView: NSView {
   var contentPadding: CGFloat = 4
   var suppressDrawing: Bool = false  // Prevents drawing until initial scroll completes
 
+  /// Track resize state - checks custom flag, window's live resize, and cooldown
+  var isInLiveResize: Bool {
+    if _isInLiveResize || _isPanelResizing || (window?.inLiveResize ?? false) {
+      return true
+    }
+    // 500ms cooldown after resize ends
+    if let endedAt = resizeEndedAt, Date().timeIntervalSince(endedAt) < 0.5 {
+      return true
+    }
+    return false
+  }
+  private var _isInLiveResize: Bool = false
+  var _isPanelResizing: Bool = false  // Set by coordinator during panel resize
+  private var resizeEndedAt: Date?
+
   var font: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) {
     didSet { updateFontMetrics() }
   }
@@ -53,7 +68,7 @@ final class LogContentView: NSView {
 
   // Monospace font metrics (calculated once)
   private var charWidth: CGFloat = 7.2
-  private var lineHeight: CGFloat = 16
+  private(set) var lineHeight: CGFloat = 16
 
   // Cache for attributed strings (only for visible lines)
   private var attrStringCache: [UUID: NSAttributedString] = [:]
@@ -70,6 +85,7 @@ final class LogContentView: NSView {
   var onLineSelectionChanged: ((Set<Int>) -> Void)?
   var onHeightChanged: (() -> Void)?  // Called when content height changes significantly
   var onClicked: (() -> Void)?  // Called when view is clicked (for focus)
+  var onResizeStateChanged: ((Bool) -> Void)?  // Called when resize starts/ends (true = resizing)
 
   // MARK: - Selection State
 
@@ -143,21 +159,81 @@ final class LogContentView: NSView {
   }
 
   override func setFrameSize(_ newSize: NSSize) {
-    let widthChanged = abs(newSize.width - bounds.width) > 0.5
     super.setFrameSize(newSize)
-    if widthChanged {
-      // Width changed - cache will be invalidated in measuredHeight()
-      // Just trigger recalculation and redraw
-      recalculateTotalHeight()
-      needsDisplay = true
-    }
+    // Don't trigger redraws here - the coordinator or viewDidEndLiveResize handles it
+    // This makes resize with many lines much faster
+  }
+
+  var savedTopLineForWindowResize: Int?
+
+  override func viewWillStartLiveResize() {
+    super.viewWillStartLiveResize()
+    _isInLiveResize = true
+    // Save which line is at top so we can restore after resize
+    savedTopLineForWindowResize = topVisibleLineIndex()
+    // Notify coordinator to disable tailing
+    onResizeStateChanged?(true)
   }
 
   override func viewDidEndLiveResize() {
     super.viewDidEndLiveResize()
-    // After resize ends, invalidate layouts to get proper wrapping
+    _isInLiveResize = false
+    // Invalidate height cache since width changed - this enables proper wrapping
     invalidateAllLayouts()
+    // Measure all lines to get accurate total height (prevents scroll bounds issues)
+    measureAllHeights()
+    // Start cooldown AFTER height calculation so recalculateTotalHeight() runs
+    resizeEndedAt = Date()
     needsDisplay = true
+
+    // Restore scroll position to keep same line at top
+    if let savedLine = savedTopLineForWindowResize {
+      scrollToLine(savedLine)
+      savedTopLineForWindowResize = nil
+    }
+
+    // Notify coordinator resize ended (with delay to let scroll settle)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+      self?.onResizeStateChanged?(false)
+    }
+  }
+
+  /// Called by coordinator when rapid resizing stops
+  func handleResizeEnded() {
+    _isInLiveResize = false
+    // Invalidate height cache since width changed - this enables proper wrapping
+    invalidateAllLayouts()
+    // Measure all lines to get accurate total height (prevents scroll bounds issues)
+    measureAllHeights()
+    // Start cooldown AFTER height calculation so recalculateTotalHeight() runs
+    resizeEndedAt = Date()
+    needsDisplay = true
+  }
+
+  /// Get the index of the line currently at the top of the visible area
+  func topVisibleLineIndex() -> Int {
+    guard !lines.isEmpty else { return 0 }
+    let visibleRect = self.visibleRect
+    let contentWidth = bounds.width - gutterWidth - contentPadding * 2
+    guard contentWidth > 0 else { return 0 }
+
+    // Use estimation (O(1)) - good enough for saving position
+    let estimatedLineHeight = lineHeight + lineSpacing
+    let estimatedLine = max(0, Int((visibleRect.minY - contentPadding) / estimatedLineHeight))
+    return min(estimatedLine, lines.count - 1)
+  }
+
+  /// Scroll to position a specific line at the top of the visible area
+  func scrollToLine(_ lineIndex: Int) {
+    guard lineIndex >= 0, lineIndex < lines.count else { return }
+    guard let scrollView = enclosingScrollView else { return }
+
+    // Calculate Y position for this line (using estimation for speed)
+    let estimatedLineHeight = lineHeight + lineSpacing
+    let targetY = contentPadding + CGFloat(lineIndex) * estimatedLineHeight
+
+    scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, targetY)))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
   }
 
   // MARK: - Public API
@@ -336,6 +412,7 @@ final class LogContentView: NSView {
     // Clear height cache so measurements are recalculated
     heightCache.removeAll()
     cachedHeightSum = 0
+    cacheWidth = 0  // Reset so next measurement uses fresh width
     heightUpdatePending = false
   }
 
@@ -343,6 +420,9 @@ final class LogContentView: NSView {
   func measureAllHeights() {
     let contentWidth = bounds.width - gutterWidth - contentPadding * 2
     guard contentWidth > 0 else { return }
+
+    // Set cacheWidth FIRST to prevent measuredHeight() from clearing the cache mid-iteration
+    cacheWidth = contentWidth
 
     for line in lines {
       // Use fast measurement if possible, falling back to slow measure for complex lines
@@ -387,13 +467,51 @@ final class LogContentView: NSView {
   }
 
   func recalculateTotalHeight() {
-    let width = bounds.width > 0 ? bounds.width : (superview?.bounds.width ?? 400)
+    // Don't change frame during resize or cooldown - causes scroll jumping
+    if isInLiveResize { return }
 
-    // O(1) calculation: use actual heights for measured lines, estimate for the rest
-    let measuredCount = heightCache.count
-    let unmeasuredCount = max(0, lines.count - measuredCount)
-    let estimateForUnmeasured = CGFloat(unmeasuredCount) * (lineHeight + lineSpacing)
-    totalContentHeight = contentPadding * 2 + cachedHeightSum + estimateForUnmeasured
+    let width = bounds.width > 0 ? bounds.width : (superview?.bounds.width ?? 400)
+    let contentWidth = width - gutterWidth - contentPadding * 2
+
+    guard !lines.isEmpty, contentWidth > 0 else {
+      totalContentHeight = contentPadding * 2
+      return
+    }
+
+    // Calculate actual height by summing measured heights
+    // Use cached heights if they were measured at a similar width (within 50px)
+    // This matches the global cache invalidation tolerance and avoids constant re-estimation
+    // when width changes slightly (e.g., scrollbar appearing/disappearing)
+    var sumOfHeights: CGFloat = 0
+    var measuredCount = 0
+    var estimatedCount = 0
+    for line in lines {
+      if let cached = heightCache[line.id], abs(cached.width - contentWidth) <= 50 {
+        sumOfHeights += cached.height
+        measuredCount += 1
+      } else {
+        sumOfHeights += lineHeight
+        estimatedCount += 1
+      }
+    }
+
+    // Total = top padding + sum of heights + spacing between lines + bottom padding
+    // Spacing is between lines, so (N-1) spacings for N lines
+    let spacingTotal = CGFloat(max(0, lines.count - 1)) * lineSpacing
+    totalContentHeight = contentPadding + sumOfHeights + spacingTotal + contentPadding
+
+    // Debug logging
+    let debugLine = "RECALC: lines=\(lines.count) measured=\(measuredCount) est=\(estimatedCount) sumH=\(Int(sumOfHeights)) spacing=\(Int(spacingTotal)) total=\(Int(totalContentHeight)) cacheWidth=\(Int(cacheWidth)) contentWidth=\(Int(contentWidth))\n"
+    if let data = debugLine.data(using: .utf8) {
+      let url = URL(fileURLWithPath: "/tmp/proceed_height_debug.log")
+      if let handle = try? FileHandle(forWritingTo: url) {
+        handle.seekToEndOfFile()
+        handle.write(data)
+        handle.closeFile()
+      } else {
+        try? data.write(to: url)
+      }
+    }
 
     // Update frame to match content
     let minHeight = superview?.bounds.height ?? 100
@@ -402,7 +520,6 @@ final class LogContentView: NSView {
       || abs(frame.size.width - newFrame.size.width) > 1
     {
       frame = newFrame
-      // Notify scroll view of size change
       if let scrollView = enclosingScrollView {
         scrollView.reflectScrolledClipView(scrollView.contentView)
       }
@@ -411,16 +528,21 @@ final class LogContentView: NSView {
 
   /// Get actual rendered height for a line (cached)
   private func measuredHeight(for line: OutputLine, contentWidth: CGFloat) -> CGFloat {
-    // Invalidate cache if width changed significantly
-    if abs(cacheWidth - contentWidth) > 1 {
+    // Invalidate cache if width changed significantly (> 50px)
+    // Small width changes during frame settling shouldn't invalidate measurements
+    if abs(cacheWidth - contentWidth) > 50 {
       heightCache.removeAll()
       cachedHeightSum = 0
       cacheWidth = contentWidth
       heightUpdatePending = false  // Reset since we're starting fresh
+    } else if cacheWidth == 0 {
+      // First measurement - just set the width
+      cacheWidth = contentWidth
     }
 
-    // Check cache
-    if let cached = heightCache[line.id], abs(cached.width - contentWidth) < 1 {
+    // Check cache - use 50px tolerance to match recalculateTotalHeight()
+    // This avoids constant re-measurement during minor width changes (scrollbar, layout)
+    if let cached = heightCache[line.id], abs(cached.width - contentWidth) <= 50 {
       return cached.height
     }
 
@@ -515,10 +637,11 @@ final class LogContentView: NSView {
 
     // After drawing, update total height if new lines were measured
     // Must defer to avoid changing frame during draw
-    if heightUpdatePending {
+    // Skip during live resize to prevent scroll jumping
+    if heightUpdatePending && !isInLiveResize {
       heightUpdatePending = false
       DispatchQueue.main.async { [weak self] in
-        guard let self = self else { return }
+        guard let self = self, !self.isInLiveResize else { return }
         let oldHeight = self.frame.height
         self.recalculateTotalHeight()
         // If height changed significantly, notify scroll view and callback
@@ -530,23 +653,46 @@ final class LogContentView: NSView {
     }
   }
 
-  /// Find the first visible line by iterating through lines
+  /// Find the first visible line by calculating actual Y positions from cached heights
+  /// This ensures correct positioning even with wrapped lines
   private func findStartLine(in rect: NSRect, contentWidth: CGFloat) -> (Int, CGFloat) {
     guard !lines.isEmpty else { return (0, contentPadding) }
 
-    var y: CGFloat = contentPadding
+    // Calculate actual Y positions using cached heights
+    // This is O(n) but necessary for correct scroll positioning with wrapped lines
+    var y = contentPadding
+    let targetY = rect.minY
 
-    for i in 0..<lines.count {
-      let height = measuredHeight(for: lines[i], contentWidth: contentWidth)
-
-      // If this line's bottom is past the visible rect top, start here
-      if y + height >= rect.minY {
-        return (i, y)
+    for (index, line) in lines.enumerated() {
+      // Get height from cache, or estimate if not cached
+      let height: CGFloat
+      if let cached = heightCache[line.id], abs(cached.width - contentWidth) <= 50 {
+        height = cached.height
+      } else {
+        height = lineHeight
       }
+
+      // Check if this line starts at or before the target Y
+      // Return a few lines earlier to ensure we don't miss any visible content
+      if y + height + lineSpacing >= targetY {
+        let startIndex = max(0, index - 3)
+        // Recalculate Y for the adjusted start index
+        var startY = contentPadding
+        for i in 0..<startIndex {
+          if let cached = heightCache[lines[i].id], abs(cached.width - contentWidth) <= 50 {
+            startY += cached.height + lineSpacing
+          } else {
+            startY += lineHeight + lineSpacing
+          }
+        }
+        return (startIndex, startY)
+      }
+
       y += height + lineSpacing
     }
 
-    return (lines.count - 1, y)
+    // If we reach here, target is past all content - return last line
+    return (lines.count - 1, y - lineHeight - lineSpacing)
   }
 
   private func drawGutter(
@@ -977,6 +1123,27 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     // Suppress drawing until initial scroll completes
     contentView.suppressDrawing = !lines.isEmpty
 
+    // Handle window resize tailing state - capture coordinator directly
+    let coordinator = context.coordinator
+    contentView.onResizeStateChanged = { [weak coordinator] isResizing in
+      guard let coordinator = coordinator else { return }
+      if isResizing {
+        // Save and disable tailing
+        if coordinator.savedTailingState == nil {
+          coordinator.savedTailingState = coordinator.isTailingBinding?.wrappedValue
+          if coordinator.savedTailingState == true {
+            coordinator.isTailingBinding?.wrappedValue = false
+          }
+        }
+      } else {
+        // Restore tailing state
+        if let wasTailing = coordinator.savedTailingState {
+          coordinator.savedTailingState = nil
+          coordinator.isTailingBinding?.wrappedValue = wasTailing
+        }
+      }
+    }
+
     scrollView.documentView = contentView
 
     // IMPORTANT: Set references BEFORE registering notifications to avoid race condition
@@ -987,13 +1154,18 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     context.coordinator.pendingLines = lines.isEmpty ? nil : lines  // Store for deferred population
 
     // Set up height change callback - re-scroll when tailing and height grows
-    let coordinator = context.coordinator
+    // Skip during ANY resize activity to prevent scroll jumping
     contentView.onHeightChanged = { [weak coordinator, weak contentView] in
       guard let coordinator = coordinator,
         let contentView = contentView,
         let scrollView = coordinator.scrollView,
         coordinator.isTailingBinding?.wrappedValue == true
       else { return }
+
+      // Block tailing scroll during any resize activity
+      if coordinator.isCurrentlyResizing || contentView.isInLiveResize || contentView._isPanelResizing {
+        return
+      }
 
       // Re-scroll to bottom when height changes and we're tailing
       let maxY = contentView.frame.height - scrollView.contentView.bounds.height
@@ -1095,6 +1267,11 @@ struct LogContentViewRepresentable: NSViewRepresentable {
   private func scrollToBottomIfNeeded(_ scrollView: NSScrollView, measureFirst: Bool = false) {
     guard let contentView = scrollView.documentView as? LogContentView else { return }
 
+    // Block tailing scroll during any resize activity
+    if contentView.isInLiveResize || contentView._isPanelResizing {
+      return
+    }
+
     // Only measure all heights on explicit request (e.g., initial load)
     // For auto-scroll during tailing, use current frame height (may not be exact but is fast)
     if measureFirst {
@@ -1115,6 +1292,14 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     var pendingLines: [OutputLine]?  // Lines waiting to be set after view is sized
     private var lastUserScrollTime: Date?
 
+    // Track rapid frame changes to detect programmatic resizing
+    private var lastFrameChangeTime: Date?
+    private var resizeEndTimer: Timer?
+    private var isResizing: Bool = false
+    private var resizeEndedAt: Date?  // Track when resize ended for cooldown
+    private var savedTopLineIndex: Int?  // Save which line is at top during resize
+    var savedTailingState: Bool?  // Save tailing state during resize
+
     func isAtBottom(_ scrollView: NSScrollView) -> Bool {
       guard let documentView = scrollView.documentView else { return true }
       let visibleHeight = scrollView.contentView.bounds.height
@@ -1125,13 +1310,31 @@ struct LogContentViewRepresentable: NSViewRepresentable {
 
     @objc func scrollViewDidScroll(_ notification: Notification) {
       guard let clipView = notification.object as? NSClipView,
-        let scrollView = clipView.enclosingScrollView
+        let scrollView = clipView.enclosingScrollView,
+        let contentView = documentView
       else { return }
 
-      // Detect user-initiated scroll (not programmatic)
-      // If user scrolls away from bottom, disable tailing
+      // During resize: actively block scroll changes by resetting to saved position
+      if isResizing || contentView._isPanelResizing || contentView.isInLiveResize {
+        if let savedLine = savedTopLineIndex ?? contentView.savedTopLineForWindowResize {
+          let estimatedLineHeight = contentView.lineHeight + contentView.lineSpacing
+          let targetY = contentView.contentPadding + CGFloat(savedLine) * estimatedLineHeight
+          let currentY = clipView.bounds.origin.y
+          if abs(currentY - targetY) > 1 {
+            clipView.scroll(to: NSPoint(x: 0, y: max(0, targetY)))
+            scrollView.reflectScrolledClipView(clipView)
+          }
+        }
+        return
+      }
+
+      // Don't interpret scroll during cooldown as user action
+      if isCurrentlyResizing {
+        return
+      }
+
+      // Detect user-initiated scroll - if scrolled away from bottom, disable tailing
       if !isAtBottom(scrollView) {
-        // Only update if we're currently tailing
         if isTailingBinding?.wrappedValue == true {
           DispatchQueue.main.async { [weak self] in
             self?.isTailingBinding?.wrappedValue = false
@@ -1145,12 +1348,6 @@ struct LogContentViewRepresentable: NSViewRepresentable {
         let contentView = documentView,
         let scrollView = scrollView
       else { return }
-      let newWidth = clipView.bounds.width
-      if newWidth > 0 && abs(contentView.bounds.width - newWidth) > 0.5 {
-        contentView.frame = NSRect(x: 0, y: 0, width: newWidth, height: contentView.frame.height)
-        contentView.recalculateTotalHeight()
-        contentView.needsDisplay = true
-      }
 
       // Perform deferred initial population and scroll once we have a valid size
       if needsInitialScroll && clipView.bounds.height > 0 && clipView.bounds.width > 0 {
@@ -1174,7 +1371,78 @@ struct LogContentViewRepresentable: NSViewRepresentable {
         // Now allow drawing - we're scrolled to the right position
         contentView.suppressDrawing = false
         contentView.needsDisplay = true
+        return
       }
+
+      // Track rapid frame changes to detect resize operations
+      let now = Date()
+      let isRapidChange = lastFrameChangeTime.map { now.timeIntervalSince($0) < 0.15 } ?? false
+      lastFrameChangeTime = now
+
+      // Cancel any pending resize-end timer
+      resizeEndTimer?.invalidate()
+
+      let newWidth = clipView.bounds.width
+      let widthChanged = newWidth > 0 && abs(contentView.bounds.width - newWidth) > 0.5
+
+      if widthChanged {
+        // During resize: only update frame width, DON'T redraw (expensive with many lines)
+        // This prevents expensive reflows and scroll adjustments
+        if isRapidChange || contentView.isInLiveResize {
+          // Save state on first resize frame
+          if !isResizing {
+            savedTopLineIndex = contentView.topVisibleLineIndex()
+            // Temporarily disable tailing to prevent scroll interference
+            savedTailingState = isTailingBinding?.wrappedValue
+            if savedTailingState == true {
+              isTailingBinding?.wrappedValue = false
+            }
+          }
+          isResizing = true
+          contentView._isPanelResizing = true  // Tell content view to skip expensive drawing
+          contentView.frame.size.width = newWidth
+          // Don't set needsDisplay - wait until resize ends to redraw
+
+          // Schedule resize-end handler
+          resizeEndTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+            guard let self = self, let contentView = self.documentView else { return }
+            self.isResizing = false
+            self.resizeEndedAt = Date()  // Record for cooldown period
+            contentView._isPanelResizing = false
+            contentView.handleResizeEnded()
+
+            // Restore scroll position to keep same line at top
+            if let savedLine = self.savedTopLineIndex {
+              contentView.scrollToLine(savedLine)
+              self.savedTopLineIndex = nil
+            }
+
+            // Restore tailing state after a brief delay to let scroll settle
+            if let wasTailing = self.savedTailingState {
+              self.savedTailingState = nil
+              DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.isTailingBinding?.wrappedValue = wasTailing
+              }
+            }
+          }
+        } else {
+          // Single frame change (not rapid resize) - update width and redraw
+          contentView.frame.size.width = newWidth
+          contentView.needsDisplay = true
+        }
+      }
+    }
+
+    /// Whether we're currently in a resize operation (includes cooldown period)
+    var isCurrentlyResizing: Bool {
+      if isResizing || (documentView?.isInLiveResize ?? false) {
+        return true
+      }
+      // 1 second cooldown after resize ends to let heights settle and tailing restore
+      if let endedAt = resizeEndedAt, Date().timeIntervalSince(endedAt) < 1.0 {
+        return true
+      }
+      return false
     }
   }
 }
