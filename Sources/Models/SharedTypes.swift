@@ -106,10 +106,13 @@ struct PanelState: Codable, Identifiable {
   var processConfig: ProcessConfigState?
   var status: PanelStatusState
   var handleId: String?  // tmux session ID for reconnection
+  var isMinimized: Bool?  // optional for backward compatibility
+  var rememberedRatio: CGFloat?  // ratio to restore when expanding
 }
 
 /// Persisted process config
 struct ProcessConfigState: Codable {
+  var id: UUID?  // Config ID - determines tmux session name, must be preserved for reconnection
   var name: String
   var command: String
   var workingDirectory: String

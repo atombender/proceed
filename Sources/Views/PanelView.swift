@@ -22,10 +22,12 @@ struct PanelView: View {
   var body: some View {
     VStack(spacing: 0) {
       titleBar
-      if isFilterBarVisible {
-        filterBar
+      if !panel.isMinimized {
+        if isFilterBarVisible {
+          filterBar
+        }
+        contentArea
       }
-      contentArea
     }
     .background(Color(NSColor.windowBackgroundColor))
     .cornerRadius(6)
@@ -54,6 +56,15 @@ struct PanelView: View {
       if isFocused && !isFilterBarVisible {
         isFilterBarVisible = true
         isFilterFieldFocused = true
+      }
+    }
+    .onChange(of: panel.isLoadingHistory) { isLoading in
+      // When history finishes loading, scroll to bottom if tailing
+      if !isLoading && isTailing {
+        // Small delay to let the view update with new lines
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+          scrollToBottomTrigger = true
+        }
       }
     }
   }
@@ -164,6 +175,19 @@ struct PanelView: View {
         help: "Close panel"
       ) {
         tilingState.closePanel(id: panel.id)
+      }
+
+      // Minimize button (only show if more than one panel)
+      if tilingState.canMinimize(panelId: panel.id) {
+        TitleBarButton(
+          icon: panel.isMinimized ? "chevron.down" : "chevron.up",
+          color: .secondary,
+          help: panel.isMinimized ? "Expand panel" : "Minimize panel"
+        ) {
+          withAnimation(.easeInOut(duration: 0.2)) {
+            tilingState.toggleMinimize(panelId: panel.id)
+          }
+        }
       }
 
       Circle()

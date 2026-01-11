@@ -107,6 +107,9 @@ struct SplitView: View {
       .gesture(
         DragGesture(minimumDistance: 1)
           .onChanged { value in
+            // Auto-expand any minimized panels when user tries to resize
+            expandMinimizedChildPanels()
+
             isDraggingDivider = true
             let delta: CGFloat
             let totalSize: CGFloat
@@ -129,6 +132,22 @@ struct SplitView: View {
             isDraggingDivider = false
           }
       )
+  }
+
+  /// Expand any minimized panels that are direct children of this split
+  private func expandMinimizedChildPanels() {
+    // Check first child
+    if case .leaf(_, let panelId) = first,
+       let panel = tilingState.panel(for: panelId),
+       panel.isMinimized {
+      tilingState.expandPanel(panelId: panelId)
+    }
+    // Check second child
+    if case .leaf(_, let panelId) = second,
+       let panel = tilingState.panel(for: panelId),
+       panel.isMinimized {
+      tilingState.expandPanel(panelId: panelId)
+    }
   }
 
   private var firstSize: CGSize {

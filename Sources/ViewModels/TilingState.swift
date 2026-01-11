@@ -87,6 +87,7 @@ class TilingState: ObservableObject {
       var processConfig: ProcessConfig? = nil
       if let configState = panelState.processConfig {
         processConfig = ProcessConfig(
+          id: configState.id ?? UUID(),  // Use saved ID for tmux reconnection, or generate new
           name: configState.name,
           command: configState.command,
           workingDirectory: configState.workingDirectory,
@@ -106,13 +107,17 @@ class TilingState: ObservableObject {
 
       // Load lines from database asynchronously
       // We initialize with empty lines to unblock the main thread immediately
+      // Compute tmuxHandleId from config.id (source of truth) rather than using saved handleId
+      let tmuxHandleId: String? = processConfig.map { "proceed-\($0.id.uuidString)" }
       let panel = Panel(
         id: panelState.id,
         title: panelState.title,
         status: status,
         lines: [],  // Empty initially
         processConfig: processConfig,
-        tmuxHandleId: panelState.handleId
+        tmuxHandleId: tmuxHandleId,
+        isMinimized: panelState.isMinimized ?? false,
+        rememberedRatio: panelState.rememberedRatio
       )
       panel.isLoadingHistory = true
 
@@ -192,9 +197,25 @@ class TilingState: ObservableObject {
       shell: config.shell
     )
 
-    // Create a panel for this process
-    let panel = Panel(title: config.displayName, status: .running, processConfig: config)
+    // Create a panel for this process (starts as "running" - will be updated if start fails)
+    // Set tmuxHandleId upfront since it's deterministic (proceed-{config.id})
+    let tmuxHandleId = "proceed-\(config.id.uuidString)"
+    let panel = Panel(
+      title: config.displayName,
+      status: .running,
+      processConfig: config,
+      tmuxHandleId: tmuxHandleId
+    )
     panels[panel.id] = panel
+
+    // Add panel to the tiling layout
+    addPanelToLayout(panelId: panel.id)
+
+    // IMPORTANT: Save to database BEFORE starting the process.
+    // This ensures the panel exists in our source of truth even if the app crashes
+    // before the debounced save completes. The process state is runtime state that
+    // can be reconstructed from tmux on restart.
+    WindowManager.shared.saveNow()
 
     // Create and start the process using the backend
     let runningProcess = RunningProcess(
@@ -205,9 +226,6 @@ class TilingState: ObservableObject {
         }
     )
     processes[config.id] = runningProcess
-
-    // Add panel to the tiling layout
-    addPanelToLayout(panelId: panel.id)
 
     // Start the process
     runningProcess.start(using: backend)
@@ -384,11 +402,18 @@ class TilingState: ObservableObject {
       shell: oldConfig.shell,
       autoReloadEnabled: oldConfig.autoReloadEnabled,
       autoReloadIncludes: oldConfig.autoReloadIncludes,
-      autoReloadExcludes: oldConfig.autoReloadExcludes
+      autoReloadExcludes: oldConfig.autoReloadExcludes,
+      autoRestart: oldConfig.autoRestart,
+      outputExcludeFilters: oldConfig.outputExcludeFilters
     )
 
-    // Update panel's config reference
+    // Update panel's config and tmuxHandleId
     panel.processConfig = newConfig
+    panel.tmuxHandleId = "proceed-\(newConfig.id.uuidString)"
+
+    // IMPORTANT: Save to database BEFORE starting the process.
+    // This ensures the new config.id is persisted even if the app crashes.
+    WindowManager.shared.saveNow()
 
     // Create and start new process, reusing the existing panel
     let runningProcess = RunningProcess(
@@ -490,8 +515,9 @@ class TilingState: ObservableObject {
         }
 
         await MainActor.run {
-          // Update panel config and title
+          // Update panel config, tmuxHandleId, and title
           panel.processConfig = newConfig
+          panel.tmuxHandleId = "proceed-\(newConfig.id.uuidString)"
           panel.title = newConfig.displayName
 
           // Remove any existing process entry
@@ -499,6 +525,13 @@ class TilingState: ObservableObject {
             existingProcess.cleanup(using: backend)
             processes.removeValue(forKey: existingProcess.config.id)
           }
+
+          // Update last used values
+          lastCommand = newConfig.command
+          lastWorkingDirectory = newConfig.workingDirectory
+
+          // IMPORTANT: Save BEFORE starting the process
+          WindowManager.shared.saveNow()
 
           // Only restart if it was previously running
           if wasRunning {
@@ -521,12 +554,6 @@ class TilingState: ObservableObject {
             processes[newConfig.id] = runningProcess
             runningProcess.start(using: backend)
           }
-
-          // Update last used values
-          lastCommand = newConfig.command
-          lastWorkingDirectory = newConfig.workingDirectory
-
-          WindowManager.shared.scheduleSave()
         }
       }
     } else {
@@ -718,6 +745,13 @@ class TilingState: ObservableObject {
         )
       }
     }
+
+    // Expand the dragged panel if it was minimized - it should fill its new space
+    if let panel = panels[draggedPanelId], panel.isMinimized {
+      panel.isMinimized = false
+      panel.rememberedRatio = nil
+    }
+
     dragState = nil
   }
 
@@ -747,6 +781,95 @@ class TilingState: ObservableObject {
   func updateSplitRatio(splitId: UUID, ratio: CGFloat) {
     guard let root = rootNode else { return }
     rootNode = root.updatingRatio(splitId: splitId, ratio: ratio)
+  }
+
+  // MARK: - Panel Minimize/Expand
+
+  /// Check if a panel can be minimized (requires more than one panel)
+  func canMinimize(panelId: UUID) -> Bool {
+    guard let root = rootNode else { return false }
+    return root.allPanelIds.count > 1
+  }
+
+  /// Toggle minimize state for a panel
+  func toggleMinimize(panelId: UUID) {
+    guard let panel = panels[panelId] else { return }
+
+    if panel.isMinimized {
+      expandPanel(panelId: panelId)
+    } else {
+      minimizePanel(panelId: panelId)
+    }
+  }
+
+  /// Minimize a panel (collapse to title bar only)
+  func minimizePanel(panelId: UUID) {
+    guard let panel = panels[panelId],
+          var root = rootNode,
+          !panel.isMinimized else { return }
+
+    // Find parent split info
+    guard let parentInfo = root.findParentSplit(panelId: panelId) else { return }
+
+    if parentInfo.direction == .vertical {
+      // Already in vertical split - just adjust ratio
+      // Remember current ratio
+      if let currentRatio = root.findSplitRatio(splitId: parentInfo.splitId) {
+        panel.rememberedRatio = parentInfo.isFirst ? currentRatio : (1 - currentRatio)
+      }
+
+      // Set collapsed ratio (panel at ~5% height)
+      let collapsedRatio: CGFloat = parentInfo.isFirst
+        ? Constants.collapsedPanelRatio
+        : (1 - Constants.collapsedPanelRatio)
+      rootNode = root.updatingRatio(splitId: parentInfo.splitId, ratio: collapsedRatio)
+
+    } else {
+      // Horizontal split - need to restructure
+      // Find sibling and move panel above it
+      if let siblingId = root.findSiblingPanelId(panelId: panelId) {
+        // Remember we were in horizontal split for potential future restore
+        panel.rememberedRatio = 0.5
+
+        // Restructure: remove panel, then insert above sibling
+        if let newRoot = root.removing(panelId: panelId) {
+          root = newRoot.insertingAsSplit(
+            newPanelId: panelId,
+            relativeTo: siblingId,
+            position: .top
+          )
+
+          // Find the new parent split and set collapsed ratio
+          if let newParentInfo = root.findParentSplit(panelId: panelId) {
+            let collapsedRatio: CGFloat = newParentInfo.isFirst
+              ? Constants.collapsedPanelRatio
+              : (1 - Constants.collapsedPanelRatio)
+            root = root.updatingRatio(splitId: newParentInfo.splitId, ratio: collapsedRatio)
+          }
+
+          rootNode = root
+        }
+      }
+    }
+
+    panel.isMinimized = true
+  }
+
+  /// Expand a minimized panel
+  func expandPanel(panelId: UUID) {
+    guard let panel = panels[panelId],
+          let root = rootNode,
+          panel.isMinimized else { return }
+
+    // Restore remembered ratio
+    if let rememberedRatio = panel.rememberedRatio,
+       let parentInfo = root.findParentSplit(panelId: panelId) {
+      let restoredRatio = parentInfo.isFirst ? rememberedRatio : (1 - rememberedRatio)
+      rootNode = root.updatingRatio(splitId: parentInfo.splitId, ratio: restoredRatio)
+    }
+
+    panel.isMinimized = false
+    panel.rememberedRatio = nil
   }
 
   /// Get redundant drop positions for a drag operation
@@ -824,7 +947,9 @@ class TilingState: ObservableObject {
         status: status,
         lines: [], // Empty initially
         processConfig: processConfig,
-        tmuxHandleId: panelState.handleId
+        tmuxHandleId: panelState.handleId,
+        isMinimized: panelState.isMinimized ?? false,
+        rememberedRatio: panelState.rememberedRatio
       )
       panel.isLoadingHistory = true
 

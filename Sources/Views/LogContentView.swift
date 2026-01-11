@@ -1209,6 +1209,12 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     let oldCount = contentView.lines.count
     let newCount = lines.count
 
+    // Detect if this is an initial load (0 -> N lines) and protect from scroll events
+    let isInitialLoad = oldCount == 0 && newCount > 0
+    if isInitialLoad {
+      context.coordinator.isPerformingInitialScroll = true
+    }
+
     // Always ensure proper width first
     let scrollWidth = scrollView.contentView.bounds.width
     if scrollWidth > 0 && abs(contentView.bounds.width - scrollWidth) > 0.5 {
@@ -1247,15 +1253,27 @@ struct LogContentViewRepresentable: NSViewRepresentable {
         self.scrollToBottom = false
       }
     }
-    // Auto-scroll if tailing is enabled and new lines arrived
-    else if newCount != oldCount && isTailing {
-      // If we went from 0 to N lines (initial async load), scroll IMMEDIATELY to avoid visual jump
-      if oldCount == 0 {
-        self.scrollToBottomIfNeeded(scrollView, measureFirst: true)
-      } else {
-        DispatchQueue.main.async {
-          self.scrollToBottomIfNeeded(scrollView)
+    // On initial load (0 -> N lines), ALWAYS scroll to bottom and enable tailing
+    // This ensures panels start at the bottom regardless of any intermediate tailing state changes
+    else if isInitialLoad {
+      // Defer with delay to ensure view is fully laid out (150ms gives time for layout pass)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
+        // Force scroll to bypass resize blocking - initial scroll must always work
+        self.scrollToBottomIfNeeded(scrollView, measureFirst: true, forceScroll: true)
+        // Ensure tailing is enabled after initial scroll
+        if !self.isTailing {
+          self.isTailing = true
         }
+        // Clear the flag after scroll settles
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+          context.coordinator.isPerformingInitialScroll = false
+        }
+      }
+    }
+    // Auto-scroll if tailing is enabled and new lines arrived (not initial load)
+    else if newCount != oldCount && isTailing {
+      DispatchQueue.main.async {
+        self.scrollToBottomIfNeeded(scrollView)
       }
     }
   }
@@ -1264,11 +1282,13 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     Coordinator()
   }
 
-  private func scrollToBottomIfNeeded(_ scrollView: NSScrollView, measureFirst: Bool = false) {
-    guard let contentView = scrollView.documentView as? LogContentView else { return }
+  private func scrollToBottomIfNeeded(_ scrollView: NSScrollView, measureFirst: Bool = false, forceScroll: Bool = false, retryCount: Int = 0) {
+    guard let contentView = scrollView.documentView as? LogContentView else {
+      return
+    }
 
-    // Block tailing scroll during any resize activity
-    if contentView.isInLiveResize || contentView._isPanelResizing {
+    // Block tailing scroll during any resize activity (unless forced for initial scroll)
+    if !forceScroll && (contentView.isInLiveResize || contentView._isPanelResizing) {
       return
     }
 
@@ -1278,7 +1298,17 @@ struct LogContentViewRepresentable: NSViewRepresentable {
       contentView.measureAllHeights()
     }
 
-    let maxY = contentView.frame.height - scrollView.contentView.bounds.height
+    let contentHeight = contentView.frame.height
+    let maxY = contentHeight - scrollView.contentView.bounds.height
+
+    // If content height is 0 but we have lines, the layout isn't ready yet - retry
+    if contentHeight <= 0 && !contentView.lines.isEmpty && retryCount < 3 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [self] in
+        self.scrollToBottomIfNeeded(scrollView, measureFirst: measureFirst, forceScroll: forceScroll, retryCount: retryCount + 1)
+      }
+      return
+    }
+
     scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, maxY)))
     scrollView.reflectScrolledClipView(scrollView.contentView)
   }
@@ -1291,6 +1321,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     var needsInitialScroll: Bool = false
     var pendingLines: [OutputLine]?  // Lines waiting to be set after view is sized
     private var lastUserScrollTime: Date?
+    var isPerformingInitialScroll: Bool = false  // Flag to ignore scroll events during initial setup
 
     // Track rapid frame changes to detect programmatic resizing
     private var lastFrameChangeTime: Date?
@@ -1300,12 +1331,14 @@ struct LogContentViewRepresentable: NSViewRepresentable {
     private var savedTopLineIndex: Int?  // Save which line is at top during resize
     var savedTailingState: Bool?  // Save tailing state during resize
 
-    func isAtBottom(_ scrollView: NSScrollView) -> Bool {
+    func isAtBottom(_ scrollView: NSScrollView, lineHeight: CGFloat = 16) -> Bool {
       guard let documentView = scrollView.documentView else { return true }
       let visibleHeight = scrollView.contentView.bounds.height
       let contentHeight = documentView.frame.height
       let scrollPosition = scrollView.contentView.bounds.origin.y
-      return scrollPosition >= contentHeight - visibleHeight - 20
+      // Consider "at bottom" if within 2 line heights of the bottom
+      let threshold = lineHeight * 2
+      return scrollPosition >= contentHeight - visibleHeight - threshold
     }
 
     @objc func scrollViewDidScroll(_ notification: Notification) {
@@ -1333,9 +1366,26 @@ struct LogContentViewRepresentable: NSViewRepresentable {
         return
       }
 
-      // Detect user-initiated scroll - if scrolled away from bottom, disable tailing
-      if !isAtBottom(scrollView) {
-        if isTailingBinding?.wrappedValue == true {
+      // Skip tailing updates during initial scroll setup
+      if isPerformingInitialScroll {
+        return
+      }
+
+      let lineHeight = contentView.lineHeight
+      let atBottom = isAtBottom(scrollView, lineHeight: lineHeight)
+      let currentTailing = isTailingBinding?.wrappedValue ?? false
+
+      // Update tailing state based on scroll position
+      if atBottom {
+        // Re-enable tailing when user scrolls near the bottom
+        if !currentTailing {
+          DispatchQueue.main.async { [weak self] in
+            self?.isTailingBinding?.wrappedValue = true
+          }
+        }
+      } else {
+        // Disable tailing when user scrolls away from bottom
+        if currentTailing {
           DispatchQueue.main.async { [weak self] in
             self?.isTailingBinding?.wrappedValue = false
           }
@@ -1352,6 +1402,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
       // Perform deferred initial population and scroll once we have a valid size
       if needsInitialScroll && clipView.bounds.height > 0 && clipView.bounds.width > 0 {
         needsInitialScroll = false
+        isPerformingInitialScroll = true  // Prevent scroll events from disabling tailing
 
         // Now populate with lines (view is sized, so heights can be calculated properly)
         if let lines = pendingLines {
@@ -1363,14 +1414,31 @@ struct LogContentViewRepresentable: NSViewRepresentable {
           contentView.measureAllHeights()
         }
 
-        // Scroll to bottom
-        let maxY = contentView.frame.height - clipView.bounds.height
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, maxY)))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-
-        // Now allow drawing - we're scrolled to the right position
+        // Now allow drawing
         contentView.suppressDrawing = false
         contentView.needsDisplay = true
+
+        // Defer scroll with small delay to ensure layout is fully complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak scrollView, weak contentView] in
+          guard let self = self, let scrollView = scrollView, let contentView = contentView else {
+            return
+          }
+          // Re-measure to ensure frame is accurate after layout
+          contentView.measureAllHeights()
+          let maxY = contentView.frame.height - scrollView.contentView.bounds.height
+          scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, maxY)))
+          scrollView.reflectScrolledClipView(scrollView.contentView)
+
+          // Clear the flag after scroll settles
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.isPerformingInitialScroll = false
+          }
+        }
+        return
+      }
+
+      // Skip resize detection during initial scroll setup
+      if isPerformingInitialScroll {
         return
       }
 

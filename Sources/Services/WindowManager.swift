@@ -44,6 +44,23 @@ class WindowManager: ObservableObject {
     saveQueue.asyncAfter(deadline: .now() + 1.0, execute: workItem)
   }
 
+  /// Save immediately, bypassing debounce (for critical operations like panel creation)
+  func saveNow() {
+    lock.lock()
+    // Cancel any pending debounced save
+    saveDebounceWorkItem?.cancel()
+    saveDebounceWorkItem = nil
+
+    // Capture window frames on main thread
+    let windowFrames = captureWindowFrames()
+    lock.unlock()
+
+    // Execute save synchronously on the save queue
+    saveQueue.sync {
+      self.saveAllStates(windowFrames: windowFrames)
+    }
+  }
+
   /// Capture window frames - must be called on main thread
   private func captureWindowFrames() -> [UUID: NSRect] {
     var frames: [UUID: NSRect] = [:]
@@ -106,6 +123,7 @@ class WindowManager: ObservableObject {
       for (_, panel) in tilingState.panels {
         let configState: ProcessConfigState? = panel.processConfig.map {
           ProcessConfigState(
+            id: $0.id,  // Preserve config ID for tmux session reconnection
             name: $0.name,
             command: $0.command,
             workingDirectory: $0.workingDirectory,
@@ -131,7 +149,9 @@ class WindowManager: ObservableObject {
           statusState = .exitedNormally
         }
 
-        let handleId = panel.tmuxHandleId
+        // Compute handleId from config.id to ensure they're always in sync
+        // The tmux session name is always "proceed-{config.id}"
+        let handleId: String? = panel.processConfig.map { "proceed-\($0.id.uuidString)" }
 
         panelStates.append(
           PanelState(
@@ -139,7 +159,9 @@ class WindowManager: ObservableObject {
             title: panel.title,
             processConfig: configState,
             status: statusState,
-            handleId: handleId
+            handleId: handleId,
+            isMinimized: panel.isMinimized,
+            rememberedRatio: panel.rememberedRatio
           ))
       }
 

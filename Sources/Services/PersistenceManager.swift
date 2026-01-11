@@ -147,6 +147,8 @@ class PersistenceManager {
           status_json TEXT NOT NULL,
           config_json TEXT,
           position INTEGER NOT NULL,
+          is_minimized INTEGER NOT NULL DEFAULT 0,
+          remembered_ratio REAL,
           FOREIGN KEY (window_id) REFERENCES windows(id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_panels_window ON panels(window_id);
@@ -155,6 +157,14 @@ class PersistenceManager {
     if sqlite3_exec(stateDb, stateSql, nil, nil, nil) != SQLITE_OK {
       os_log("Error creating state tables: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
     }
+
+    // Add is_minimized and remembered_ratio columns if they don't exist (migration)
+    let migrateSql = """
+      ALTER TABLE panels ADD COLUMN is_minimized INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE panels ADD COLUMN remembered_ratio REAL;
+      """
+    // SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we just try and ignore errors
+    sqlite3_exec(stateDb, migrateSql, nil, nil, nil)
 
     // Migrate from windows.json or old logs.db if needed
     migrateWindowStateIfNeeded()
@@ -688,7 +698,7 @@ class PersistenceManager {
         sqlite3_finalize(stmt)
 
         // Insert panels
-        let panelSql = "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        let panelSql = "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position, is_minimized, remembered_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         for (position, panel) in windowData.panels.enumerated() {
           let statusJson = (try? encoder.encode(panel.status)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
           let configJson = panel.processConfig.flatMap { try? encoder.encode($0) }.flatMap { String(data: $0, encoding: .utf8) }
@@ -709,6 +719,12 @@ class PersistenceManager {
               sqlite3_bind_null(stmt, 6)
             }
             sqlite3_bind_int(stmt, 7, Int32(position))
+            sqlite3_bind_int(stmt, 8, (panel.isMinimized ?? false) ? 1 : 0)
+            if let ratio = panel.rememberedRatio {
+              sqlite3_bind_double(stmt, 9, ratio)
+            } else {
+              sqlite3_bind_null(stmt, 9)
+            }
 
             if sqlite3_step(stmt) != SQLITE_DONE {
               os_log("Error saving panel: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
@@ -788,7 +804,7 @@ class PersistenceManager {
       sqlite3_finalize(stmt)
 
       // Insert panels
-      let panelSql = "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      let panelSql = "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position, is_minimized, remembered_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
       for (position, panel) in windowData.panels.enumerated() {
         let statusJson = (try? encoder.encode(panel.status)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         let configJson = panel.processConfig.flatMap { try? encoder.encode($0) }.flatMap { String(data: $0, encoding: .utf8) }
@@ -809,6 +825,12 @@ class PersistenceManager {
             sqlite3_bind_null(stmt, 6)
           }
           sqlite3_bind_int(stmt, 7, Int32(position))
+          sqlite3_bind_int(stmt, 8, (panel.isMinimized ?? false) ? 1 : 0)
+          if let ratio = panel.rememberedRatio {
+            sqlite3_bind_double(stmt, 9, ratio)
+          } else {
+            sqlite3_bind_null(stmt, 9)
+          }
 
           if sqlite3_step(stmt) != SQLITE_DONE {
             os_log("Error saving panel: %{public}@", log: Logger.persistence, type: .error, String(cString: sqlite3_errmsg(stateDb)))
@@ -855,7 +877,7 @@ class PersistenceManager {
 
           // Load panels for this window
           var panels: [PanelState] = []
-          let panelSql = "SELECT id, title, handle_id, status_json, config_json FROM panels WHERE window_id = ? ORDER BY position"
+          let panelSql = "SELECT id, title, handle_id, status_json, config_json, is_minimized, remembered_ratio FROM panels WHERE window_id = ? ORDER BY position"
           var panelStmt: OpaquePointer?
 
           if sqlite3_prepare_v2(stateDb, panelSql, -1, &panelStmt, nil) == SQLITE_OK {
@@ -884,7 +906,12 @@ class PersistenceManager {
                 config = try? decoder.decode(ProcessConfigState.self, from: configData)
               }
 
-              panels.append(PanelState(id: panelId, title: title, processConfig: config, status: status, handleId: handleId))
+              // Read minimize state (column 5) - defaults to false if NULL or missing
+              let isMinimized = sqlite3_column_type(panelStmt, 5) != SQLITE_NULL ? sqlite3_column_int(panelStmt, 5) != 0 : false
+              // Read remembered ratio (column 6) - nil if NULL
+              let rememberedRatio: CGFloat? = sqlite3_column_type(panelStmt, 6) != SQLITE_NULL ? CGFloat(sqlite3_column_double(panelStmt, 6)) : nil
+
+              panels.append(PanelState(id: panelId, title: title, processConfig: config, status: status, handleId: handleId, isMinimized: isMinimized, rememberedRatio: rememberedRatio))
             }
           }
           sqlite3_finalize(panelStmt)

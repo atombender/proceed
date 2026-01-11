@@ -264,6 +264,80 @@ enum TileNode: Identifiable, Equatable {
     }
   }
 
+  /// Find the parent split containing a specific panel
+  /// Returns (splitId, direction, isFirst) where isFirst indicates if the panel is the first child
+  func findParentSplit(panelId: UUID) -> (splitId: UUID, direction: SplitDirection, isFirst: Bool)? {
+    switch self {
+    case .leaf:
+      return nil
+    case .split(let id, let direction, let first, let second, _):
+      // Check if the panel is a direct child of this split
+      if case .leaf(_, let firstPanelId) = first.value, firstPanelId == panelId {
+        return (id, direction, true)
+      }
+      if case .leaf(_, let secondPanelId) = second.value, secondPanelId == panelId {
+        return (id, direction, false)
+      }
+
+      // Recursively search children
+      if let result = first.value.findParentSplit(panelId: panelId) {
+        return result
+      }
+      return second.value.findParentSplit(panelId: panelId)
+    }
+  }
+
+  /// Find a split node by its ID and return its current ratio
+  func findSplitRatio(splitId: UUID) -> CGFloat? {
+    switch self {
+    case .leaf:
+      return nil
+    case .split(let id, _, let first, let second, let ratio):
+      if id == splitId {
+        return ratio
+      }
+      return first.value.findSplitRatio(splitId: splitId)
+        ?? second.value.findSplitRatio(splitId: splitId)
+    }
+  }
+
+  /// Find the sibling panel ID in the immediate parent split
+  /// Returns nil if the panel is not found or has no sibling leaf
+  func findSiblingPanelId(panelId: UUID) -> UUID? {
+    switch self {
+    case .leaf:
+      return nil
+    case .split(_, _, let first, let second, _):
+      // Check if one child is the target panel and the other is a leaf
+      if case .leaf(_, let firstPanelId) = first.value {
+        if firstPanelId == panelId {
+          // Target is first child, look for sibling in second
+          if case .leaf(_, let siblingId) = second.value {
+            return siblingId
+          }
+          // Second is a split, get its first leaf panel
+          return second.value.allPanelIds.first
+        }
+      }
+      if case .leaf(_, let secondPanelId) = second.value {
+        if secondPanelId == panelId {
+          // Target is second child, look for sibling in first
+          if case .leaf(_, let siblingId) = first.value {
+            return siblingId
+          }
+          // First is a split, get its last leaf panel (closest to the target)
+          return first.value.allPanelIds.last
+        }
+      }
+
+      // Recursively search children
+      if let result = first.value.findSiblingPanelId(panelId: panelId) {
+        return result
+      }
+      return second.value.findSiblingPanelId(panelId: panelId)
+    }
+  }
+
   /// Create a 2x2 grid of panels
   static func grid2x2(panels: [UUID]) -> TileNode {
     precondition(panels.count == 4)

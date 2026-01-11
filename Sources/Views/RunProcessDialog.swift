@@ -207,9 +207,12 @@ struct RunProcessDialog: View {
   }
 
   private func saveProcess() {
-    guard let panelId = tilingState.editingPanelId else { return }
+    guard let panelId = tilingState.editingPanelId,
+          let existingConfig = editingPanel?.processConfig else { return }
 
+    // IMPORTANT: Preserve the existing config.id to maintain tmux session identity
     let newConfig = ProcessConfig(
+      id: existingConfig.id,
       name: name,
       command: command,
       workingDirectory: workingDirectory,

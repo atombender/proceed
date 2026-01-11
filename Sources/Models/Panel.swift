@@ -400,6 +400,12 @@ class Panel: ObservableObject, Identifiable, Equatable {
   /// When the process stopped (nil if still running)
   @Published var stoppedAt: Date?
 
+  /// Whether the panel is minimized (collapsed to title bar only)
+  @Published var isMinimized: Bool = false
+
+  /// Remembered split ratio for restoring after expand
+  @Published var rememberedRatio: CGFloat?
+
   init(
     id: UUID = UUID(),
     title: String,
@@ -408,7 +414,9 @@ class Panel: ObservableObject, Identifiable, Equatable {
     processConfig: ProcessConfig? = nil,
     tmuxHandleId: String? = nil,
     startedAt: Date? = nil,
-    stoppedAt: Date? = nil
+    stoppedAt: Date? = nil,
+    isMinimized: Bool = false,
+    rememberedRatio: CGFloat? = nil
   ) {
     self.id = id
     self.title = title
@@ -418,6 +426,8 @@ class Panel: ObservableObject, Identifiable, Equatable {
     self.tmuxHandleId = tmuxHandleId
     self.startedAt = startedAt
     self.stoppedAt = stoppedAt
+    self.isMinimized = isMinimized
+    self.rememberedRatio = rememberedRatio
   }
 
   static func == (lhs: Panel, rhs: Panel) -> Bool {

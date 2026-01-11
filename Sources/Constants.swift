@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Application-wide constants
 enum Constants {
@@ -38,4 +39,7 @@ enum Constants {
 
   /// Maximum split ratio for tiling
   static let maxSplitRatio: Double = 0.9
+
+  /// Ratio for minimized (collapsed) panels in a split (~5% for title bar only)
+  static let collapsedPanelRatio: CGFloat = 0.05
 }
