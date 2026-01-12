@@ -412,7 +412,8 @@ final class LogContentView: NSView {
   func getSelectedText() -> String? {
     // First check line selection - use raw text to preserve ANSI codes
     if !selectedLineIndices.isEmpty {
-      let sortedIndices = selectedLineIndices.sorted()
+      let sortedIndices = selectedLineIndices.sorted().filter { $0 < lines.count }
+      guard !sortedIndices.isEmpty else { return nil }
       return sortedIndices.map { lines[$0].rawText }.joined(separator: "\n")
     }
 
