@@ -627,18 +627,22 @@ class PersistenceManager {
 
       // Encode arrays as JSON
       let encoder = JSONEncoder()
-      let includesJson = (try? encoder.encode(config.autoReloadIncludes)).flatMap {
-        String(data: $0, encoding: .utf8)
-      } ?? "[]"
-      let excludesJson = (try? encoder.encode(config.autoReloadExcludes)).flatMap {
-        String(data: $0, encoding: .utf8)
-      } ?? "[]"
-      let outputFiltersJson = (try? encoder.encode(config.outputExcludeFilters ?? [])).flatMap {
-        String(data: $0, encoding: .utf8)
-      } ?? "[]"
-      let highlightJson = (try? encoder.encode(config.highlightPatterns ?? [])).flatMap {
-        String(data: $0, encoding: .utf8)
-      } ?? "[]"
+      let includesJson =
+        (try? encoder.encode(config.autoReloadIncludes)).flatMap {
+          String(data: $0, encoding: .utf8)
+        } ?? "[]"
+      let excludesJson =
+        (try? encoder.encode(config.autoReloadExcludes)).flatMap {
+          String(data: $0, encoding: .utf8)
+        } ?? "[]"
+      let outputFiltersJson =
+        (try? encoder.encode(config.outputExcludeFilters ?? [])).flatMap {
+          String(data: $0, encoding: .utf8)
+        } ?? "[]"
+      let highlightJson =
+        (try? encoder.encode(config.highlightPatterns ?? [])).flatMap {
+          String(data: $0, encoding: .utf8)
+        } ?? "[]"
 
       if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
         sqlite3_bind_text(
