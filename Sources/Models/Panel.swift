@@ -97,6 +97,34 @@ struct OutputLine: Identifiable, Equatable {
     lhs.id == rhs.id
   }
 
+  /// Text with all ANSI escape sequences stripped (for regex filtering)
+  var plainText: String {
+    let nsText = rawText as NSString
+    let fullRange = NSRange(location: 0, length: nsText.length)
+
+    // Strip OSC sequences first
+    let withoutOsc = Self.oscRegex.stringByReplacingMatches(
+      in: rawText, options: [], range: fullRange, withTemplate: "")
+
+    // Strip non-SGR ANSI sequences
+    let nsWithoutOsc = withoutOsc as NSString
+    let withoutNonSgr = Self.nonSgrAnsiRegex.stringByReplacingMatches(
+      in: withoutOsc,
+      options: [],
+      range: NSRange(location: 0, length: nsWithoutOsc.length),
+      withTemplate: ""
+    )
+
+    // Strip SGR (color) sequences
+    let nsWithoutNonSgr = withoutNonSgr as NSString
+    return Self.sgrRegex.stringByReplacingMatches(
+      in: withoutNonSgr,
+      options: [],
+      range: NSRange(location: 0, length: nsWithoutNonSgr.length),
+      withTemplate: ""
+    )
+  }
+
   /// Regex to match non-SGR ANSI escape sequences (cursor movement, erase, etc.)
   /// Matches ESC sequences that DON'T end in 'm' (which are SGR/color codes)
   private static let nonSgrAnsiRegex = try! NSRegularExpression(

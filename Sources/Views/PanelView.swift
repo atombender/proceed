@@ -75,27 +75,30 @@ struct PanelView: View {
   private var filteredLines: [OutputLine] {
     var lines = panel.lines
 
-    // Apply search filter if present
+    // Apply search filter if present (uses plainText to ignore ANSI codes)
     let pattern = debouncedFilterText.trimmingCharacters(in: .whitespaces)
     if !pattern.isEmpty && pattern != ".*" {
       if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
         lines = lines.filter { line in
-          let text = line.rawText
+          let text = line.plainText
           let range = NSRange(text.startIndex..., in: text)
           return regex.firstMatch(in: text, options: [], range: range) != nil
         }
       }
     }
 
-    // Apply per-process exclusion filters
+    // Apply per-process exclusion filters (uses plainText to ignore ANSI codes)
     if let excludePatterns = panel.processConfig?.outputExcludeFilters, !excludePatterns.isEmpty {
       let excludeRegexes = excludePatterns.compactMap { pattern in
         try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
       }
       if !excludeRegexes.isEmpty {
         lines = lines.filter { line in
-          let text = line.rawText
-          let range = NSRange(text.startIndex..., in: text)
+          let text = line.plainText
+          // Limit matching to first 2000 chars to prevent regex backtracking hangs
+          let maxLen = min(text.count, 2000)
+          let endIndex = text.index(text.startIndex, offsetBy: maxLen)
+          let range = NSRange(text.startIndex..<endIndex, in: text)
           // Keep line only if NO exclusion pattern matches
           return !excludeRegexes.contains { regex in
             regex.firstMatch(in: text, options: [], range: range) != nil
