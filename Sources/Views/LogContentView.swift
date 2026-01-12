@@ -99,6 +99,7 @@ final class LogContentView: NSView {
   var onHeightChanged: (() -> Void)?  // Called when content height changes significantly
   var onClicked: (() -> Void)?  // Called when view is clicked (for focus)
   var onResizeStateChanged: ((Bool) -> Void)?  // Called when resize starts/ends (true = resizing)
+  var onDebugDump: (() -> String)?  // Called to get coordinator debug info
 
   // MARK: - Selection State
 
@@ -498,8 +499,8 @@ final class LogContentView: NSView {
   }
 
   func recalculateTotalHeight() {
-    // Don't change frame during resize or cooldown - causes scroll jumping
-    if isInLiveResize { return }
+    // Track if we're resizing to skip scroll reflection (avoids scroll jumping)
+    let inResize = isInLiveResize
 
     let width = bounds.width > 0 ? bounds.width : (superview?.bounds.width ?? 400)
     let contentWidth = width - gutterWidth - contentPadding * 2
@@ -531,22 +532,6 @@ final class LogContentView: NSView {
     let spacingTotal = CGFloat(max(0, lines.count - 1)) * lineSpacing
     totalContentHeight = contentPadding + sumOfHeights + spacingTotal + contentPadding
 
-    // Debug logging
-    let debugLine =
-      "RECALC: lines=\(lines.count) measured=\(measuredCount) "
-      + "est=\(estimatedCount) sumH=\(Int(sumOfHeights)) spacing=\(Int(spacingTotal)) "
-      + "total=\(Int(totalContentHeight)) cacheWidth=\(Int(cacheWidth)) contentWidth=\(Int(contentWidth))\n"
-    if let data = debugLine.data(using: .utf8) {
-      let url = URL(fileURLWithPath: "/tmp/proceed_height_debug.log")
-      if let handle = try? FileHandle(forWritingTo: url) {
-        handle.seekToEndOfFile()
-        handle.write(data)
-        handle.closeFile()
-      } else {
-        try? data.write(to: url)
-      }
-    }
-
     // Update frame to match content
     let minHeight = superview?.bounds.height ?? 100
     let newFrame = NSRect(x: 0, y: 0, width: width, height: max(totalContentHeight, minHeight))
@@ -554,7 +539,8 @@ final class LogContentView: NSView {
       || abs(frame.size.width - newFrame.size.width) > 1
     {
       frame = newFrame
-      if let scrollView = enclosingScrollView {
+      // Only update scroll view when NOT resizing - reflectScrolledClipView can cause scroll jumping
+      if !inResize, let scrollView = enclosingScrollView {
         scrollView.reflectScrolledClipView(scrollView.contentView)
       }
     }
@@ -1035,9 +1021,46 @@ final class LogContentView: NSView {
       copy(nil)
     } else if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "a" {
       selectAll(nil)
+    } else if event.modifierFlags.contains([.command, .shift])
+      && event.charactersIgnoringModifiers == "d"
+    {
+      dumpScrollDebugInfo()
     } else {
       super.keyDown(with: event)
     }
+  }
+
+  /// Debug dump for scroll issues - press Cmd+Shift+D
+  private func dumpScrollDebugInfo() {
+    var info = "=== SCROLL DEBUG INFO ===\n"
+    info += "lines.count: \(lines.count)\n"
+    info += "totalContentHeight: \(totalContentHeight)\n"
+    info += "frame: \(frame)\n"
+    info += "bounds: \(bounds)\n"
+    info += "isInLiveResize: \(isInLiveResize)\n"
+    info += "isPanelResizing: \(isPanelResizing)\n"
+
+    if let scrollView = enclosingScrollView {
+      info += "scrollView.frame: \(scrollView.frame)\n"
+      info += "clipView.bounds: \(scrollView.contentView.bounds)\n"
+      info += "documentVisibleRect: \(scrollView.documentVisibleRect)\n"
+      info += "hasVerticalScroller: \(scrollView.hasVerticalScroller)\n"
+      let canScroll = frame.height > scrollView.contentView.bounds.height
+      info += "canScroll (contentH > clipH): \(canScroll)\n"
+    }
+
+    // Get coordinator state if available
+    if let coordinatorInfo = onDebugDump?() {
+      info += "\n--- Coordinator State ---\n"
+      info += coordinatorInfo
+    }
+
+    print(info)
+
+    // Also write to temp file for easy access
+    let url = URL(fileURLWithPath: "/tmp/proceed_scroll_debug.log")
+    try? info.write(to: url, atomically: true, encoding: .utf8)
+    print("Debug info written to /tmp/proceed_scroll_debug.log")
   }
 
   @objc func copy(_ sender: Any?) {
@@ -1179,6 +1202,12 @@ struct LogContentViewRepresentable: NSViewRepresentable {
           coordinator.isTailingBinding?.wrappedValue = wasTailing
         }
       }
+    }
+
+    // Debug dump callback
+    contentView.onDebugDump = { [weak coordinator] in
+      guard let coordinator = coordinator else { return "coordinator is nil" }
+      return coordinator.debugInfo()
     }
 
     scrollView.documentView = contentView
@@ -1393,9 +1422,18 @@ struct LogContentViewRepresentable: NSViewRepresentable {
         let contentView = documentView
       else { return }
 
-      // During resize: actively block scroll changes by resetting to saved position
+      // During resize: actively block scroll changes
       if isResizing || contentView.isPanelResizing || contentView.isInLiveResize {
-        if let savedLine = savedTopLineIndex ?? contentView.savedTopLineForWindowResize {
+        // If tailing, scroll to bottom; otherwise, scroll to saved line
+        if savedTailingState == true {
+          // Scroll to bottom during resize to maintain tailing position
+          let maxY = contentView.frame.height - clipView.bounds.height
+          let currentY = clipView.bounds.origin.y
+          if maxY > 0, abs(currentY - maxY) > 1 {
+            clipView.scroll(to: NSPoint(x: 0, y: max(0, maxY)))
+            scrollView.reflectScrolledClipView(clipView)
+          }
+        } else if let savedLine = savedTopLineIndex ?? contentView.savedTopLineForWindowResize {
           let estimatedLineHeight = contentView.lineHeight + contentView.lineSpacing
           let targetY = contentView.contentPadding + CGFloat(savedLine) * estimatedLineHeight
           let currentY = clipView.bounds.origin.y
@@ -1527,18 +1565,32 @@ struct LogContentViewRepresentable: NSViewRepresentable {
             contentView.isPanelResizing = false
             contentView.handleResizeEnded()
 
-            // Restore scroll position to keep same line at top
-            if let savedLine = self.savedTopLineIndex {
-              contentView.scrollToLine(savedLine)
-              self.savedTopLineIndex = nil
-            }
-
-            // Restore tailing state after a brief delay to let scroll settle
+            // Restore scroll position based on whether we were tailing
             if let wasTailing = self.savedTailingState {
               self.savedTailingState = nil
-              DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.isTailingBinding?.wrappedValue = wasTailing
+              if wasTailing {
+                // Was tailing - scroll to bottom and restore tailing state
+                // Must defer to next run loop - scroll view isn't ready immediately after handleResizeEnded()
+                DispatchQueue.main.async { [weak self, weak contentView] in
+                  guard let self = self, let contentView = contentView,
+                    let scrollView = self.scrollView
+                  else { return }
+                  let maxY = contentView.frame.height - scrollView.contentView.bounds.height
+                  scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, maxY)))
+                  scrollView.reflectScrolledClipView(scrollView.contentView)
+                  self.isTailingBinding?.wrappedValue = true
+                }
+              } else {
+                // Was not tailing - restore scroll position to keep same line at top
+                if let savedLine = self.savedTopLineIndex {
+                  contentView.scrollToLine(savedLine)
+                }
               }
+              self.savedTopLineIndex = nil
+            } else if let savedLine = self.savedTopLineIndex {
+              // No tailing state saved, just restore position
+              contentView.scrollToLine(savedLine)
+              self.savedTopLineIndex = nil
             }
           }
         } else {
@@ -1559,6 +1611,21 @@ struct LogContentViewRepresentable: NSViewRepresentable {
         return true
       }
       return false
+    }
+
+    /// Debug info for scroll issues
+    func debugInfo() -> String {
+      var info = ""
+      info += "isPerformingInitialScroll: \(isPerformingInitialScroll)\n"
+      info += "needsInitialScroll: \(needsInitialScroll)\n"
+      info += "isResizing: \(isResizing)\n"
+      info += "isCurrentlyResizing: \(isCurrentlyResizing)\n"
+      info += "isTailing: \(isTailingBinding?.wrappedValue ?? false)\n"
+      info += "savedTailingState: \(String(describing: savedTailingState))\n"
+      info += "resizeEndedAt: \(String(describing: resizeEndedAt))\n"
+      info += "lastFrameChangeTime: \(String(describing: lastFrameChangeTime))\n"
+      info += "pendingLines count: \(pendingLines?.count ?? -1)\n"
+      return info
     }
   }
 }
