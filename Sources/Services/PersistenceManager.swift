@@ -133,6 +133,45 @@ class PersistenceManager {
     }
     sqlite3_finalize(stmt)
 
+    // Migration: add auto-reload and filter columns to run_history if they don't exist
+    let checkRunHistorySql =
+      "SELECT COUNT(*) FROM pragma_table_info('run_history') WHERE name='auto_reload_enabled'"
+    stmt = nil
+    if sqlite3_prepare_v2(db, checkRunHistorySql, -1, &stmt, nil) == SQLITE_OK {
+      if sqlite3_step(stmt) == SQLITE_ROW {
+        let count = sqlite3_column_int(stmt, 0)
+        if count == 0 {
+          // Add all new columns for process config
+          sqlite3_exec(
+            db,
+            """
+            ALTER TABLE run_history ADD COLUMN auto_reload_enabled INTEGER NOT NULL DEFAULT 0;
+            """, nil, nil, nil)
+          sqlite3_exec(
+            db,
+            """
+            ALTER TABLE run_history ADD COLUMN auto_reload_includes TEXT NOT NULL DEFAULT '[]';
+            """, nil, nil, nil)
+          sqlite3_exec(
+            db,
+            """
+            ALTER TABLE run_history ADD COLUMN auto_reload_excludes TEXT NOT NULL DEFAULT '[]';
+            """, nil, nil, nil)
+          sqlite3_exec(
+            db,
+            """
+            ALTER TABLE run_history ADD COLUMN output_exclude_filters TEXT NOT NULL DEFAULT '[]';
+            """, nil, nil, nil)
+          sqlite3_exec(
+            db,
+            """
+            ALTER TABLE run_history ADD COLUMN highlight_patterns TEXT NOT NULL DEFAULT '[]';
+            """, nil, nil, nil)
+        }
+      }
+    }
+    sqlite3_finalize(stmt)
+
     // State database tables (important - should not be deleted)
     let stateSql = """
       CREATE TABLE IF NOT EXISTS windows (
@@ -168,13 +207,26 @@ class PersistenceManager {
         String(cString: sqlite3_errmsg(stateDb)))
     }
 
-    // Add is_minimized and remembered_ratio columns if they don't exist (migration)
-    let migrateSql = """
-      ALTER TABLE panels ADD COLUMN is_minimized INTEGER NOT NULL DEFAULT 0;
-      ALTER TABLE panels ADD COLUMN remembered_ratio REAL;
-      """
-    // SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we just try and ignore errors
-    sqlite3_exec(stateDb, migrateSql, nil, nil, nil)
+    // Migration: add is_minimized and remembered_ratio columns if they don't exist
+    let checkMinimizedSql =
+      "SELECT COUNT(*) FROM pragma_table_info('panels') WHERE name='is_minimized'"
+    var stateStmt: OpaquePointer?
+    if sqlite3_prepare_v2(stateDb, checkMinimizedSql, -1, &stateStmt, nil) == SQLITE_OK {
+      if sqlite3_step(stateStmt) == SQLITE_ROW {
+        let count = sqlite3_column_int(stateStmt, 0)
+        if count == 0 {
+          sqlite3_exec(
+            stateDb,
+            "ALTER TABLE panels ADD COLUMN is_minimized INTEGER NOT NULL DEFAULT 0",
+            nil, nil, nil)
+          sqlite3_exec(
+            stateDb,
+            "ALTER TABLE panels ADD COLUMN remembered_ratio REAL",
+            nil, nil, nil)
+        }
+      }
+    }
+    sqlite3_finalize(stateStmt)
 
     // Migrate from windows.json or old logs.db if needed
     migrateWindowStateIfNeeded()
@@ -544,6 +596,15 @@ class PersistenceManager {
     let shell: String
     let startedAt: Date
 
+    // Auto-reload settings
+    let autoReloadEnabled: Bool
+    let autoReloadIncludes: [String]
+    let autoReloadExcludes: [String]
+
+    // Output filters
+    let outputExcludeFilters: [String]
+    let highlightPatterns: [String]
+
     /// Display name for the entry
     var displayName: String {
       name.isEmpty ? command : name
@@ -551,21 +612,53 @@ class PersistenceManager {
   }
 
   /// Record a process run in history
-  func recordRun(name: String, command: String, workingDirectory: String, shell: String) {
+  func recordRun(config: ProcessConfig) {
     dbQueue.async { [weak self] in
       guard let self = self, let db = self.db else { return }
 
-      let sql =
-        "INSERT INTO run_history (name, command, working_directory, shell, started_at) VALUES (?, ?, ?, ?, ?)"
+      let sql = """
+        INSERT INTO run_history (
+          name, command, working_directory, shell, started_at,
+          auto_reload_enabled, auto_reload_includes, auto_reload_excludes,
+          output_exclude_filters, highlight_patterns
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
       var stmt: OpaquePointer?
 
+      // Encode arrays as JSON
+      let encoder = JSONEncoder()
+      let includesJson = (try? encoder.encode(config.autoReloadIncludes)).flatMap {
+        String(data: $0, encoding: .utf8)
+      } ?? "[]"
+      let excludesJson = (try? encoder.encode(config.autoReloadExcludes)).flatMap {
+        String(data: $0, encoding: .utf8)
+      } ?? "[]"
+      let outputFiltersJson = (try? encoder.encode(config.outputExcludeFilters ?? [])).flatMap {
+        String(data: $0, encoding: .utf8)
+      } ?? "[]"
+      let highlightJson = (try? encoder.encode(config.highlightPatterns ?? [])).flatMap {
+        String(data: $0, encoding: .utf8)
+      } ?? "[]"
+
       if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-        sqlite3_bind_text(stmt, 1, name, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_text(stmt, 2, command, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_bind_text(
-          stmt, 3, workingDirectory, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
-        sqlite3_bind_text(stmt, 4, shell, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          stmt, 1, config.name, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 2, config.command, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 3, config.workingDirectory, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 4, config.shell, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         sqlite3_bind_double(stmt, 5, Date().timeIntervalSince1970)
+        sqlite3_bind_int(stmt, 6, config.autoReloadEnabled ? 1 : 0)
+        sqlite3_bind_text(
+          stmt, 7, includesJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 8, excludesJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 9, outputFiltersJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_bind_text(
+          stmt, 10, highlightJson, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
         if sqlite3_step(stmt) != SQLITE_DONE {
           os_log(
@@ -585,12 +678,15 @@ class PersistenceManager {
       var results: [RunHistoryEntry] = []
 
       let sql = """
-        SELECT id, name, command, working_directory, shell, started_at
+        SELECT id, name, command, working_directory, shell, started_at,
+               auto_reload_enabled, auto_reload_includes, auto_reload_excludes,
+               output_exclude_filters, highlight_patterns
         FROM run_history
         ORDER BY started_at DESC
         LIMIT ?
         """
       var stmt: OpaquePointer?
+      let decoder = JSONDecoder()
 
       if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
         sqlite3_bind_int(stmt, 1, Int32(limit))
@@ -603,6 +699,29 @@ class PersistenceManager {
           let shell = String(cString: sqlite3_column_text(stmt, 4))
           let startedAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
 
+          // New columns (with safe defaults for old records)
+          let autoReloadEnabled = sqlite3_column_int(stmt, 6) != 0
+
+          let includesJson =
+            sqlite3_column_text(stmt, 7).map { String(cString: $0) } ?? "[]"
+          let autoReloadIncludes =
+            (try? decoder.decode([String].self, from: Data(includesJson.utf8))) ?? []
+
+          let excludesJson =
+            sqlite3_column_text(stmt, 8).map { String(cString: $0) } ?? "[]"
+          let autoReloadExcludes =
+            (try? decoder.decode([String].self, from: Data(excludesJson.utf8))) ?? []
+
+          let outputFiltersJson =
+            sqlite3_column_text(stmt, 9).map { String(cString: $0) } ?? "[]"
+          let outputExcludeFilters =
+            (try? decoder.decode([String].self, from: Data(outputFiltersJson.utf8))) ?? []
+
+          let highlightJson =
+            sqlite3_column_text(stmt, 10).map { String(cString: $0) } ?? "[]"
+          let highlightPatterns =
+            (try? decoder.decode([String].self, from: Data(highlightJson.utf8))) ?? []
+
           results.append(
             RunHistoryEntry(
               id: id,
@@ -610,7 +729,12 @@ class PersistenceManager {
               command: command,
               workingDirectory: workingDirectory,
               shell: shell,
-              startedAt: startedAt
+              startedAt: startedAt,
+              autoReloadEnabled: autoReloadEnabled,
+              autoReloadIncludes: autoReloadIncludes,
+              autoReloadExcludes: autoReloadExcludes,
+              outputExcludeFilters: outputExcludeFilters,
+              highlightPatterns: highlightPatterns
             ))
         }
       }

@@ -185,7 +185,15 @@ struct RunProcessDialog: View {
     command = entry.command
     workingDirectory = entry.workingDirectory
     shell = entry.shell
-    // Recent runs don't store auto-reload config currently
+
+    // Restore auto-reload settings
+    autoReloadEnabled = entry.autoReloadEnabled
+    autoReloadIncludes = entry.autoReloadIncludes
+    autoReloadExcludes = entry.autoReloadExcludes
+
+    // Restore output filters and highlights
+    outputExcludeFilters = entry.outputExcludeFilters
+    highlightPatterns = entry.highlightPatterns
   }
 
   private func browseDirectory() {

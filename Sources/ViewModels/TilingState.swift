@@ -194,12 +194,7 @@ class TilingState: ObservableObject {
     lastCommand = config.command
 
     // Record in run history
-    PersistenceManager.shared.recordRun(
-      name: config.name,
-      command: config.command,
-      workingDirectory: config.workingDirectory,
-      shell: config.shell
-    )
+    PersistenceManager.shared.recordRun(config: config)
 
     // Create a panel for this process (starts as "running" - will be updated if start fails)
     // Set tmuxHandleId upfront since it's deterministic (proceed-{config.id})
@@ -541,12 +536,7 @@ class TilingState: ObservableObject {
           // Only restart if it was previously running
           if wasRunning {
             // Record in run history
-            PersistenceManager.shared.recordRun(
-              name: newConfig.name,
-              command: newConfig.command,
-              workingDirectory: newConfig.workingDirectory,
-              shell: newConfig.shell
-            )
+            PersistenceManager.shared.recordRun(config: newConfig)
 
             // Create and start new process
             let runningProcess = RunningProcess(
