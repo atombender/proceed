@@ -125,6 +125,7 @@ struct StringListEditor: View {
   let placeholder: String
   @State private var selection: Set<UUID> = []
   @State private var items: [EditableItem] = []
+  @State private var isSyncing: Bool = false
 
   // Wrapper to give each string a stable ID for editing
   private struct EditableItem: Identifiable {
@@ -155,7 +156,17 @@ struct StringListEditor: View {
         syncFromBinding()
       }
       .onChange(of: strings) { _ in
-        syncFromBinding()
+        if !isSyncing {
+          syncFromBinding()
+        }
+      }
+      .onChange(of: items.map { $0.value }) { _ in
+        // Sync to binding on every change (debounced by isSyncing flag)
+        if !isSyncing {
+          isSyncing = true
+          syncToBinding()
+          isSyncing = false
+        }
       }
 
       HStack {
