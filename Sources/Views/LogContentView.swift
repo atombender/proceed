@@ -1400,6 +1400,7 @@ struct LogContentViewRepresentable: NSViewRepresentable {
 
     // Track rapid frame changes to detect programmatic resizing
     private var lastFrameChangeTime: Date?
+    private var lastClipHeight: CGFloat = 0  // Track height changes for monitor switching
     private var resizeEndTimer: Timer?
     private var isResizing: Bool = false
     private var resizeEndedAt: Date?  // Track when resize ended for cooldown
@@ -1536,19 +1537,28 @@ struct LogContentViewRepresentable: NSViewRepresentable {
       resizeEndTimer?.invalidate()
 
       let newWidth = clipView.bounds.width
+      let newHeight = clipView.bounds.height
       let widthChanged = newWidth > 0 && abs(contentView.bounds.width - newWidth) > 0.5
+      let heightChanged = newHeight > 0 && abs(lastClipHeight - newHeight) > 0.5
+      lastClipHeight = newHeight
+      let sizeChanged = widthChanged || heightChanged
 
-      if widthChanged {
-        // During resize: only update frame width, DON'T redraw (expensive with many lines)
-        // This prevents expensive reflows and scroll adjustments
-        if isRapidChange || contentView.isInLiveResize {
-          // Save state on first resize frame
+      if sizeChanged {
+        // During resize: handle tailing state preservation
+        // Trigger on rapid changes, window live resize, OR if we're tailing (for monitor switches)
+        let currentTailing = isTailingBinding?.wrappedValue ?? false
+        let shouldHandleResize =
+          isRapidChange || contentView.isInLiveResize || currentTailing
+        if shouldHandleResize {
+          // Save state on first resize frame (only if not already saved by onResizeStateChanged)
           if !isResizing {
             savedTopLineIndex = contentView.topVisibleLineIndex()
-            // Temporarily disable tailing to prevent scroll interference
-            savedTailingState = isTailingBinding?.wrappedValue
-            if savedTailingState == true {
-              isTailingBinding?.wrappedValue = false
+            // Only save tailing state if not already saved (avoids race with onResizeStateChanged)
+            if savedTailingState == nil {
+              savedTailingState = isTailingBinding?.wrappedValue
+              if savedTailingState == true {
+                isTailingBinding?.wrappedValue = false
+              }
             }
           }
           isResizing = true
@@ -1580,16 +1590,12 @@ struct LogContentViewRepresentable: NSViewRepresentable {
                   scrollView.reflectScrolledClipView(scrollView.contentView)
                   self.isTailingBinding?.wrappedValue = true
                 }
-              } else {
-                // Was not tailing - restore scroll position to keep same line at top
-                if let savedLine = self.savedTopLineIndex {
-                  contentView.scrollToLine(savedLine)
-                }
               }
+              // If was NOT tailing, don't restore position - let it stay where it ended up
+              // The savedTopLineIndex becomes stale during vigorous resize
               self.savedTopLineIndex = nil
-            } else if let savedLine = self.savedTopLineIndex {
-              // No tailing state saved, just restore position
-              contentView.scrollToLine(savedLine)
+            } else {
+              // No tailing state saved - don't try to restore position
               self.savedTopLineIndex = nil
             }
           }
