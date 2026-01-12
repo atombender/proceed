@@ -264,6 +264,46 @@ struct PanelView: View {
             tilingState.restartProcess(forPanelId: panel.id)
           }
         }
+
+        // Hamburger menu
+        TitleBarMenuButton(color: .secondary, help: "More actions") {
+          Button {
+            if let handleId = panel.tmuxHandleId {
+              let command = "tmux attach -t proceed-\(handleId)"
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(command, forType: .string)
+            }
+          } label: {
+            Label("Copy tmux attach command", systemImage: "terminal")
+          }
+          .disabled(panel.tmuxHandleId == nil)
+
+          Divider()
+
+          Button {
+            tilingState.editingPanelId = panel.id
+            tilingState.showRunDialog = true
+          } label: {
+            Label("Edit…", systemImage: "pencil")
+          }
+
+          Button {
+            reloadProcess()
+          } label: {
+            Label("Restart", systemImage: "arrow.clockwise")
+          }
+          .disabled(isReloading || !isRunning)
+
+          Button {
+            if isRunning {
+              tilingState.stopProcess(forPanelId: panel.id)
+            } else {
+              tilingState.restartProcess(forPanelId: panel.id)
+            }
+          } label: {
+            Label(isRunning ? "Stop" : "Start", systemImage: isRunning ? "stop.fill" : "play.fill")
+          }
+        }
       }
     }
     .padding(.horizontal, 10)
@@ -494,6 +534,46 @@ struct FilterTextField: NSViewRepresentable {
       }
       return false
     }
+  }
+}
+
+struct TitleBarMenuButton<Content: View>: View {
+  let color: Color
+  let help: String
+  @ViewBuilder let content: () -> Content
+
+  @State private var isHovered: Bool = false
+
+  var body: some View {
+    ZStack(alignment: .center) {
+      Circle()
+        .fill(backgroundColor)
+        .frame(width: 18, height: 18)
+
+      Menu {
+        content()
+      } label: {
+        Image(systemName: "ellipsis")
+          .font(.system(size: 10, weight: .medium))
+          .foregroundColor(color)
+      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .fixedSize()
+    }
+    .frame(width: 18, height: 18)
+    .contentShape(Circle())
+    .onHover { hovering in
+      isHovered = hovering
+    }
+    .help(help)
+  }
+
+  private var backgroundColor: Color {
+    if isHovered {
+      return color.opacity(0.2)
+    }
+    return Color.gray.opacity(0.15)
   }
 }
 
