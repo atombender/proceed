@@ -29,6 +29,60 @@ final class TmuxBackend: ProcessBackend {
     try? FileManager.default.createDirectory(at: pipesDirectory, withIntermediateDirectories: true)
     try? FileManager.default.createDirectory(
       at: metadataDirectory, withIntermediateDirectories: true)
+
+    // Clean up orphaned pipe files from previous sessions
+    cleanupOrphanedPipes()
+  }
+
+  /// Remove pipe files that don't have corresponding active tmux sessions
+  private func cleanupOrphanedPipes() {
+    guard let files = try? FileManager.default.contentsOfDirectory(
+      at: pipesDirectory, includingPropertiesForKeys: nil
+    ) else { return }
+
+    // Get list of active tmux sessions
+    let activeSessions = Set(listActiveSessions())
+
+    for file in files {
+      let filename = file.lastPathComponent
+      // Only process our log files (proceed-UUID.log)
+      guard filename.hasPrefix(sessionPrefix), filename.hasSuffix(".log") else { continue }
+
+      // Extract session ID from filename
+      let sessionId = String(filename.dropLast(4))  // Remove .log
+
+      // If no active session with this ID, delete the file
+      if !activeSessions.contains(sessionId) {
+        try? FileManager.default.removeItem(at: file)
+      }
+    }
+  }
+
+  /// List all active tmux sessions with our prefix
+  private func listActiveSessions() -> [String] {
+    guard tmuxExists() else { return [] }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: tmuxPath())
+    process.arguments = ["list-sessions", "-F", "#{session_name}"]
+
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+
+    do {
+      try process.run()
+      process.waitUntilExit()
+
+      let data = pipe.fileHandleForReading.readDataToEndOfFile()
+      let output = String(data: data, encoding: .utf8) ?? ""
+
+      return output.split(separator: "\n")
+        .map { String($0) }
+        .filter { $0.hasPrefix(sessionPrefix) }
+    } catch {
+      return []
+    }
   }
 
   // MARK: - ProcessBackend Implementation
