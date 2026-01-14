@@ -601,8 +601,18 @@ class TilingState: ObservableObject {
 
               if isRunning {
                 panel.status = .running
+                // Set startedAt if not already set (e.g. reconnecting after app restart)
+                // We don't know exact start time, so use "now" as approximation
+                if panel.startedAt == nil {
+                  panel.startedAt = Date()
+                }
+                panel.stoppedAt = nil
               } else {
                 panel.status = .exitedNormally
+                // Set stoppedAt if transitioning to stopped
+                if panel.stoppedAt == nil {
+                  panel.stoppedAt = Date()
+                }
                 // Add exit event if not already present (process died while app was closed)
                 if panel.lines.last?.kind != .stopped {
                   panel.appendEvent(.stopped, message: "Process exited")

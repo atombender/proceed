@@ -198,14 +198,27 @@ final class TmuxBackend: ProcessBackend {
   func isRunning(handle: ProcessHandle) async -> Bool {
     // Check if the pane's process is still running (not just if session exists)
     // #{pane_dead} is "1" if the command has exited, "0" if still running
-    guard
-      let result = try? await runTmux([
-        "display-message", "-t", handle.id, "-p", "#{pane_dead}",
-      ])
-    else {
-      return false
+    // Retry a few times in case tmux is slow to respond (e.g. during app startup)
+    for attempt in 0..<3 {
+      if attempt > 0 {
+        try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms between retries
+      }
+
+      guard
+        let result = try? await runTmux([
+          "display-message", "-t", handle.id, "-p", "#{pane_dead}",
+        ])
+      else {
+        continue  // Retry on failure
+      }
+
+      if result.exitCode == 0 {
+        // Got a valid response
+        return result.stdout == "0"
+      }
+      // Non-zero exit code might mean session doesn't exist or tmux error - retry
     }
-    return result.exitCode == 0 && result.stdout == "0"
+    return false
   }
 
   func listAll() async throws -> [ProcessHandle] {
