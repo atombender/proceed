@@ -36,9 +36,11 @@ final class TmuxBackend: ProcessBackend {
 
   /// Remove pipe files that don't have corresponding active tmux sessions
   private func cleanupOrphanedPipes() {
-    guard let files = try? FileManager.default.contentsOfDirectory(
-      at: pipesDirectory, includingPropertiesForKeys: nil
-    ) else { return }
+    guard
+      let files = try? FileManager.default.contentsOfDirectory(
+        at: pipesDirectory, includingPropertiesForKeys: nil
+      )
+    else { return }
 
     // Get list of active tmux sessions
     let activeSessions = Set(listActiveSessions())
