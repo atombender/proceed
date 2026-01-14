@@ -302,7 +302,6 @@ class FileMonitor {
   }
 
   func start() {
-    print("FileMonitor: Starting watch on \(path)")
     stop()  // Ensure stopped
 
     var context = FSEventStreamContext(
@@ -337,7 +336,6 @@ class FileMonitor {
         UInt32(flags)
       )
     else {
-      print("Failed to create FSEventStream")
       return
     }
 
@@ -392,8 +390,6 @@ class FileMonitor {
     let paths = Array(changedPaths)
     changedPaths.removeAll()
 
-    print("FileMonitor: Firing callback with \(paths.count) paths")
-    // Dispatch callback
     callback(paths)
   }
 }

@@ -251,10 +251,6 @@ class RunningProcess: ObservableObject, Identifiable {
     // Defaults if empty (though global defaults should handle this)
     let effectiveIncludes = includes.isEmpty ? ["**/*"] : includes
 
-    print("RunningProcess: Starting file monitoring for \(config.workingDirectory)")
-    print("  Includes: \(effectiveIncludes)")
-    print("  Excludes: \(excludes)")
-
     fileMonitor = FileMonitor(
       path: config.workingDirectory,
       debounce: debounce
@@ -270,7 +266,6 @@ class RunningProcess: ObservableObject, Identifiable {
         // Check includes
         let isIncluded = effectiveIncludes.contains { Glob.matches(path, pattern: $0) }
         if isIncluded {
-          print("Auto-reload triggered by change in: \(path)")
           DispatchQueue.main.async {
             self.panel?.appendEvent(.info, message: "File changed: \(path). Reloading...")
             self.onReloadRequest?()
@@ -341,8 +336,6 @@ class RunningProcess: ObservableObject, Identifiable {
       let maxDelay = settings.restartMaxDelay
       let delay = min(initial * pow(2.0, Double(restartAttempts)), maxDelay)
       let targetTime = Date().addingTimeInterval(delay)
-
-      print("RunningProcess: Auto-restarting in \(delay)s (attempt \(restartAttempts + 1))")
 
       // Update panel status to show countdown
       DispatchQueue.main.async {

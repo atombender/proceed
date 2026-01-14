@@ -271,7 +271,6 @@ struct PanelDropDelegate: DropDelegate {
 
   func performDrop(info: DropInfo) -> Bool {
     guard let position = dropPosition else {
-      print("DEBUG: No drop position")
       dropPosition = nil
       return false
     }
@@ -285,39 +284,29 @@ struct PanelDropDelegate: DropDelegate {
       providers = info.itemProviders(for: [.utf8PlainText])
     }
 
-    print("DEBUG: Found \(providers.count) providers, position: \(position)")
-
     guard let provider = providers.first else {
-      print("DEBUG: No provider found")
       dropPosition = nil
       return false
     }
 
     provider.loadObject(ofClass: NSString.self) { object, error in
-      if let error = error {
-        print("DEBUG: Error loading object: \(error)")
+      if error != nil {
         return
       }
 
       guard let uuidString = object as? String else {
-        print("DEBUG: Object is not a string: \(String(describing: object))")
         return
       }
 
-      print("DEBUG: Got UUID string: \(uuidString)")
-
       guard let draggedPanelId = UUID(uuidString: uuidString) else {
-        print("DEBUG: Invalid UUID")
         return
       }
 
       guard draggedPanelId != self.panelId else {
-        print("DEBUG: Same panel, ignoring")
         return
       }
 
       DispatchQueue.main.async {
-        print("DEBUG: Performing drop")
         self.tilingState.performDropDirectly(
           draggedPanelId: draggedPanelId,
           targetPanelId: self.panelId,

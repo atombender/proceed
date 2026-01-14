@@ -154,7 +154,6 @@ struct RunProcessDialog: View {
         autoReloadExcludes = config.autoReloadExcludes
         outputExcludeFilters = config.outputExcludeFilters
         highlightPatterns = config.highlightPatterns
-        print("RunProcessDialog: Editing panel. AutoReloadEnabled: \(autoReloadEnabled)")
       } else {
         // New process mode - use last values and load recent runs
         workingDirectory = tilingState.lastWorkingDirectory

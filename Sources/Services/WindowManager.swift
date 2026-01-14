@@ -186,7 +186,6 @@ class WindowManager: ObservableObject {
     }
 
     let multiWindowState = MultiWindowState(windows: allWindowStates)
-    print("WindowManager: Saving \(allWindowStates.count) windows to persistence")
     PersistenceManager.shared.saveMultiWindowState(multiWindowState)
   }
 

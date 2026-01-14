@@ -99,11 +99,6 @@ class TilingState: ObservableObject {
           outputExcludeFilters: configState.outputExcludeFilters ?? [],
           highlightPatterns: configState.highlightPatterns ?? []
         )
-        if processConfig?.autoReloadEnabled == true {
-          print("TilingState: Restored auto-reload ENABLED for \(configState.name)")
-        } else {
-          print("TilingState: Restored auto-reload DISABLED for \(configState.name)")
-        }
       }
 
       // Load lines from database asynchronously

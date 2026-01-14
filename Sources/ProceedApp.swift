@@ -126,7 +126,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func updateHTTPServerState() {
     let enabled = SettingsManager.shared.httpAPIEnabled
-    print("AppDelegate: updateHTTPServerState() - httpAPIEnabled=\(enabled)")
     if enabled {
       HTTPServer.shared.start()
     } else {
