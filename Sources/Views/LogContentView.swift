@@ -1051,10 +1051,6 @@ final class LogContentView: NSView {
       copy(nil)
     } else if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "a" {
       selectAll(nil)
-    } else if event.modifierFlags.contains([.command, .shift])
-      && event.charactersIgnoringModifiers == "d"
-    {
-      dumpScrollDebugInfo()
     } else {
       super.keyDown(with: event)
     }
@@ -1140,7 +1136,21 @@ final class LogContentView: NSView {
       menu.addItem(lookUpItem)
     }
 
+    // Debug menu item
+    if false {
+      menu.addItem(NSMenuItem.separator())
+      let debugItem = NSMenuItem(
+        title: "Dump Scroll Debug Info", action: #selector(dumpScrollDebugMenuItem(_:)),
+        keyEquivalent: "")
+      debugItem.target = self
+      menu.addItem(debugItem)
+    }
+
     return menu
+  }
+
+  @objc func dumpScrollDebugMenuItem(_ sender: Any?) {
+    dumpScrollDebugInfo()
   }
 
   private func wordUnderPoint(_ point: NSPoint) -> String? {
