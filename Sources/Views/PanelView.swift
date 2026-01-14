@@ -227,7 +227,7 @@ struct PanelView: View {
         TitleBarMenuButton(color: .secondary, help: "More actions") {
           Button {
             if let handleId = panel.tmuxHandleId {
-              let command = "tmux attach -t proceed-\(handleId)"
+              let command = "tmux attach -t \(handleId)"
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(command, forType: .string)
             }
