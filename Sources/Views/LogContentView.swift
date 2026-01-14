@@ -40,12 +40,16 @@ final class LogContentView: NSView {
   private var resizeEndedAt: Date?
 
   var font: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular) {
-    didSet { updateFontMetrics() }
+    didSet {
+      guard font != oldValue else { return }
+      updateFontMetrics()
+    }
   }
 
   /// Regex patterns for highlighting
   var highlightPatterns: [String] = [] {
     didSet {
+      guard highlightPatterns != oldValue else { return }
       // Compile regexes and invalidate cache when patterns change
       compiledHighlightPatterns = highlightPatterns.compactMap { pattern in
         try? NSRegularExpression(pattern: pattern, options: [])
@@ -86,9 +90,11 @@ final class LogContentView: NSView {
   // Cache for attributed strings (only for visible lines)
   private var attrStringCache: [UUID: NSAttributedString] = [:]
   private var cacheFont: NSFont?
+  private let maxAttrCacheSize = 5000  // Limit to prevent unbounded growth
 
   // Cache for measured heights (keyed by line ID and content width)
   private var heightCache: [UUID: (width: CGFloat, height: CGFloat)] = [:]
+  private let maxHeightCacheSize = 5000
   private var cacheWidth: CGFloat = 0
   private var cachedHeightSum: CGFloat = 0  // Running sum of measured heights for O(1) total
   private var heightUpdatePending: Bool = false  // Track if we need to update after draw
@@ -295,6 +301,16 @@ final class LogContentView: NSView {
     }
 
     let attrString = buildAttributedString(for: line)
+
+    // Evict old entries if cache is too large
+    if attrStringCache.count >= maxAttrCacheSize {
+      // Remove ~20% of entries (arbitrary keys since dict is unordered)
+      let keysToRemove = Array(attrStringCache.keys.prefix(maxAttrCacheSize / 5))
+      for key in keysToRemove {
+        attrStringCache.removeValue(forKey: key)
+      }
+    }
+
     attrStringCache[line.id] = attrString
     return attrString
   }
@@ -473,6 +489,19 @@ final class LogContentView: NSView {
     if let old = heightCache[lineId] {
       cachedHeightSum -= old.height + lineSpacing
     }
+
+    // Evict old entries if cache is too large
+    if heightCache.count >= maxHeightCacheSize {
+      // Remove ~20% of entries and their height contributions
+      let keysToRemove = Array(heightCache.keys.prefix(maxHeightCacheSize / 5))
+      for key in keysToRemove {
+        if let old = heightCache[key] {
+          cachedHeightSum -= old.height + lineSpacing
+        }
+        heightCache.removeValue(forKey: key)
+      }
+    }
+
     heightCache[lineId] = (width, height)
     cachedHeightSum += height + lineSpacing
     heightUpdatePending = true
@@ -1309,12 +1338,8 @@ struct LogContentViewRepresentable: NSViewRepresentable {
       // Full replacement needed
       contentView.setLines(lines)
     }
-
-    // Recalculate height if we have lines and valid width
-    if scrollWidth > 0 && !lines.isEmpty {
-      contentView.recalculateTotalHeight()
-      contentView.needsDisplay = true
-    }
+    // Note: setLines and appendLines already call recalculateTotalHeight and needsDisplay
+    // Don't redundantly call them here - that was causing excessive CPU usage
 
     // Scroll to bottom if explicitly requested (user clicked button)
     if scrollToBottom {

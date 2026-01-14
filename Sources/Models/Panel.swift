@@ -407,18 +407,26 @@ class Panel: ObservableObject, Identifiable, Equatable {
   let id: UUID
   @Published var title: String
   @Published var status: ProcessStatus
-  @Published var lines: [OutputLine]
   @Published var isLoadingHistory: Bool = false
-  /// Max buffer lines - uses SettingsManager.shared.maxLineHistory
-  var maxBufferLines: Int {
-    SettingsManager.shared.maxLineHistory
+
+  /// The line store managing all output lines and filtering
+  let lineStore: LineStore
+
+  /// Convenience accessor for all lines (for backward compatibility)
+  var lines: [OutputLine] {
+    lineStore.visibleLines
   }
 
   /// Selected line IDs for line-based selection
   @Published var selectedLineIDs: Set<UUID> = []
 
   /// The process configuration (for restart capability)
-  var processConfig: ProcessConfig?
+  var processConfig: ProcessConfig? {
+    didSet {
+      // Update exclude filters in line store when config changes
+      lineStore.setExcludePatterns(processConfig?.outputExcludeFilters ?? [])
+    }
+  }
 
   /// The tmux handle ID for reconnection after app restart
   var tmuxHandleId: String?
@@ -450,13 +458,26 @@ class Panel: ObservableObject, Identifiable, Equatable {
     self.id = id
     self.title = title
     self.status = status
-    self.lines = lines
     self.processConfig = processConfig
     self.tmuxHandleId = tmuxHandleId
     self.startedAt = startedAt
     self.stoppedAt = stoppedAt
     self.isMinimized = isMinimized
     self.rememberedRatio = rememberedRatio
+
+    // Initialize line store
+    self.lineStore = LineStore(panelId: id)
+    lineStore.maxLines = SettingsManager.shared.maxLineHistory
+
+    // Set initial lines if provided
+    if !lines.isEmpty {
+      lineStore.setLines(lines)
+    }
+
+    // Set exclude patterns (didSet doesn't fire in init)
+    if let patterns = processConfig?.outputExcludeFilters, !patterns.isEmpty {
+      lineStore.setExcludePatterns(patterns)
+    }
   }
 
   static func == (lhs: Panel, rhs: Panel) -> Bool {
@@ -466,32 +487,18 @@ class Panel: ObservableObject, Identifiable, Equatable {
   func appendLine(_ text: String, kind: LogEntryKind = .output) {
     let timestamp = Date()
     let line = OutputLine(text: text, timestamp: timestamp, kind: kind)
-    lines.append(line)
-
-    // Persist to database
-    PersistenceManager.shared.appendToLog(panelId: id, line: text, timestamp: timestamp, kind: kind)
-
-    // Trim buffer if needed
-    if lines.count > maxBufferLines {
-      lines.removeFirst(lines.count - maxBufferLines)
-    }
+    lineStore.append(line)
+    // Notify observers that panel content changed
+    objectWillChange.send()
   }
 
   /// Append multiple lines at once (more efficient for batched updates)
   func appendLines(_ texts: [String], kind: LogEntryKind = .output) {
     let timestamp = Date()
     let newLines = texts.map { OutputLine(text: $0, timestamp: timestamp, kind: kind) }
-    lines.append(contentsOf: newLines)
-
-    // Persist to database (all lines get same timestamp for batch)
-    let timestamps = Array(repeating: timestamp, count: texts.count)
-    PersistenceManager.shared.appendToLog(
-      panelId: id, lines: texts, timestamps: timestamps, kind: kind)
-
-    // Trim buffer if needed
-    if lines.count > maxBufferLines {
-      lines.removeFirst(lines.count - maxBufferLines)
-    }
+    lineStore.append(contentsOf: newLines)
+    // Notify observers that panel content changed
+    objectWillChange.send()
   }
 
   /// Append a meta event (started, stopped, etc.)
@@ -499,17 +506,17 @@ class Panel: ObservableObject, Identifiable, Equatable {
     appendLine(message, kind: kind)
   }
 
-  /// Prepend history lines (loaded asynchronously)
-  /// Maintains existing lines that may have been added while history was loading
+  /// Prepend history lines (loaded asynchronously, don't persist again)
   func prependHistory(_ historyLines: [OutputLine]) {
     guard !historyLines.isEmpty else { return }
+    lineStore.prependHistory(historyLines)
+    // Notify observers that panel content changed
+    objectWillChange.send()
+  }
 
-    // Combine history with current lines
-    lines.insert(contentsOf: historyLines, at: 0)
-
-    // Trim buffer if needed (though unlikely to exceed limit on startup unless limit changed)
-    if lines.count > maxBufferLines {
-      lines.removeFirst(lines.count - maxBufferLines)
-    }
+  /// Set the search/filter pattern
+  func setSearchPattern(_ pattern: String) {
+    lineStore.setSearchPattern(pattern)
+    objectWillChange.send()
   }
 }

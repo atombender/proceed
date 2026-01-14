@@ -34,6 +34,7 @@
 		FA2B36A62F12C36700EA58C6 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2B36A52F12C36700EA58C6 /* Logger.swift */; };
 		FA2B36A72F12C36700EA58C6 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2B36A52F12C36700EA58C6 /* Logger.swift */; };
 		FA2B36A92F12C37400EA58C6 /* LogLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2B36A82F12C37400EA58C6 /* LogLine.swift */; };
+		FA2B36AA2F12C38000EA58C6 /* LineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2B36AB2F12C38000EA58C6 /* LineStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -86,6 +87,7 @@
 		FA2B36A22F12C35D00EA58C6 /* SharedTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedTypes.swift; sourceTree = "<group>"; };
 		FA2B36A52F12C36700EA58C6 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		FA2B36A82F12C37400EA58C6 /* LogLine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogLine.swift; sourceTree = "<group>"; };
+		FA2B36AB2F12C38000EA58C6 /* LineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -151,6 +153,7 @@
 				A200000000000006 /* TileNode.swift */,
 				A200000000000010 /* ProcessConfig.swift */,
 				FA2B36A22F12C35D00EA58C6 /* SharedTypes.swift */,
+				FA2B36AB2F12C38000EA58C6 /* LineStore.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -314,6 +317,7 @@
 				A100000000000017 /* LogContentView.swift in Sources */,
 				A100000000000018 /* HTTPServer.swift in Sources */,
 				FA2B36A12F12C34200EA58C6 /* Constants.swift in Sources */,
+				FA2B36AA2F12C38000EA58C6 /* LineStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -442,17 +442,8 @@ private class PipeReader {
       handle.seekToEndOfFile()
     }
 
-    // Use timer-based polling as primary mechanism
-    let timer = DispatchSource.makeTimerSource(queue: readQueue)
-    timer.schedule(deadline: .now(), repeating: .milliseconds(50))
-    timer.setEventHandler { [weak self] in
-      self?.readNewContent()
-    }
-    self.timer = timer
-    timer.resume()
-
-    // Also set up file system monitoring as backup
-    // (triggers on file modifications in addition to timer)
+    // Set up file system monitoring as primary mechanism
+    // This is event-driven and only fires when the file is modified
     let fd = open(path.path, O_EVTONLY)
     if fd >= 0 {
       let source = DispatchSource.makeFileSystemObjectSource(
@@ -469,6 +460,16 @@ private class PipeReader {
       self.fileSource = source
       source.resume()
     }
+
+    // Backup timer at 1 second rate in case file system events are missed
+    // This is much less aggressive than the previous 50ms polling
+    let timer = DispatchSource.makeTimerSource(queue: readQueue)
+    timer.schedule(deadline: .now() + 1, repeating: .seconds(1))
+    timer.setEventHandler { [weak self] in
+      self?.readNewContent()
+    }
+    self.timer = timer
+    timer.resume()
   }
 
   func stop() {

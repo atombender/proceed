@@ -16,7 +16,6 @@ struct PanelView: View {
   // Filter bar state
   @State private var isFilterBarVisible: Bool = false
   @State private var filterText: String = ""
-  @State private var debouncedFilterText: String = ""
   @FocusState private var isFilterFieldFocused: Bool
 
   var body: some View {
@@ -67,47 +66,6 @@ struct PanelView: View {
         }
       }
     }
-  }
-
-  // MARK: - Filtered Lines
-
-  /// Lines filtered by the current search regex and exclusion filters
-  private var filteredLines: [OutputLine] {
-    var lines = panel.lines
-
-    // Apply search filter if present (uses plainText to ignore ANSI codes)
-    let pattern = debouncedFilterText.trimmingCharacters(in: .whitespaces)
-    if !pattern.isEmpty && pattern != ".*" {
-      if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-        lines = lines.filter { line in
-          let text = line.plainText
-          let range = NSRange(text.startIndex..., in: text)
-          return regex.firstMatch(in: text, options: [], range: range) != nil
-        }
-      }
-    }
-
-    // Apply per-process exclusion filters (uses plainText to ignore ANSI codes)
-    if let excludePatterns = panel.processConfig?.outputExcludeFilters, !excludePatterns.isEmpty {
-      let excludeRegexes = excludePatterns.compactMap { pattern in
-        try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
-      }
-      if !excludeRegexes.isEmpty {
-        lines = lines.filter { line in
-          let text = line.plainText
-          // Limit matching to first 2000 chars to prevent regex backtracking hangs
-          let maxLen = min(text.count, 2000)
-          let endIndex = text.index(text.startIndex, offsetBy: maxLen)
-          let range = NSRange(text.startIndex..<endIndex, in: text)
-          // Keep line only if NO exclusion pattern matches
-          return !excludeRegexes.contains { regex in
-            regex.firstMatch(in: text, options: [], range: range) != nil
-          }
-        }
-      }
-    }
-
-    return lines
   }
 
   private var isDraggingThisPanel: Bool {
@@ -357,7 +315,7 @@ struct PanelView: View {
   private var contentArea: some View {
     ZStack {
       LogContentViewRepresentable(
-        lines: filteredLines,
+        lines: panel.lines,  // Now returns visibleLines from LineStore
         font: NSFont.monospacedSystemFont(ofSize: settingsManager.fontSize, weight: .regular),
         gutterWidth: 85,
         highlightPatterns: panel.processConfig?.highlightPatterns ?? [],
@@ -403,7 +361,7 @@ struct PanelView: View {
           }
 
         if !filterText.isEmpty {
-          Text("\(filteredLines.count)/\(panel.lines.count)")
+          Text("\(panel.lineStore.visibleLineCount)/\(panel.lineStore.totalLineCount)")
             .font(.system(size: 10))
             .foregroundColor(.secondary)
         }
@@ -430,7 +388,7 @@ struct PanelView: View {
   private func closeFilterBar() {
     isFilterBarVisible = false
     filterText = ""
-    debouncedFilterText = ""
+    panel.setSearchPattern("")
     isFilterFieldFocused = false
   }
 
@@ -439,10 +397,10 @@ struct PanelView: View {
   private func debounceFilterUpdate(_ newValue: String) {
     filterDebounceTask?.cancel()
     filterDebounceTask = Task {
-      try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms debounce
+      try? await Task.sleep(nanoseconds: 150_000_000)  // 150ms debounce
       if !Task.isCancelled {
         await MainActor.run {
-          debouncedFilterText = newValue
+          panel.setSearchPattern(newValue)
         }
       }
     }
