@@ -45,13 +45,17 @@ class WorkspaceManager: ObservableObject {
     }
 
     // Sort by display name for stable ordering
-    allWorkspaces.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    allWorkspaces.sort {
+      $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+    }
 
     // Update workspaces immediately so open/closed status shows right away
     self.workspaces = allWorkspaces
 
     // Update running counts for closed workspaces asynchronously (these may still have tmux sessions)
-    let closedIds = allWorkspaces.enumerated().filter { !$0.element.isOpen }.map { ($0.offset, $0.element.id) }
+    let closedIds = allWorkspaces.enumerated().filter { !$0.element.isOpen }.map {
+      ($0.offset, $0.element.id)
+    }
 
     if !closedIds.isEmpty {
       Task { @MainActor in

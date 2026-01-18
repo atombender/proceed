@@ -112,7 +112,9 @@ class TilingState: ObservableObject {
     defer {
       isRestoring = false
       let elapsed = CFAbsoluteTimeGetCurrent() - restoreStart
-      os_log("Restore completed in %.3fs for %d panels", log: Logger.tilingState, type: .info, elapsed, state.panels.count)
+      os_log(
+        "Restore completed in %.3fs for %d panels", log: Logger.tilingState, type: .info, elapsed,
+        state.panels.count)
       // Notify once after restoration is complete (deferred to avoid view update conflicts)
       DispatchQueue.main.async { [weak self] in
         self?.notifyStateChanged()
@@ -666,8 +668,9 @@ class TilingState: ObservableObject {
       do {
         let listStart = CFAbsoluteTimeGetCurrent()
         let handles = try await backend.listAll()
-        os_log("listAll() took %.3fs, found %d handles", log: Logger.tilingState, type: .debug,
-               CFAbsoluteTimeGetCurrent() - listStart, handles.count)
+        os_log(
+          "listAll() took %.3fs, found %d handles", log: Logger.tilingState, type: .debug,
+          CFAbsoluteTimeGetCurrent() - listStart, handles.count)
         var reconnectedHandleIds: Set<String> = []
 
         for handle in handles {
@@ -758,8 +761,9 @@ class TilingState: ObservableObject {
           }
         }
       }
-      os_log("reconnectToExistingProcesses completed in %.3fs", log: Logger.tilingState, type: .info,
-             CFAbsoluteTimeGetCurrent() - reconnectStart)
+      os_log(
+        "reconnectToExistingProcesses completed in %.3fs", log: Logger.tilingState, type: .info,
+        CFAbsoluteTimeGetCurrent() - reconnectStart)
     }
   }
 

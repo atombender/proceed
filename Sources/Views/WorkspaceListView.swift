@@ -130,7 +130,9 @@ struct WorkspaceRow: View {
     }
     .padding(.vertical, 6)
     .padding(.horizontal, 8)
-    .background(isHovered ? Color(NSColor.selectedContentBackgroundColor).opacity(0.3) : Color.clear)
+    .background(
+      isHovered ? Color(NSColor.selectedContentBackgroundColor).opacity(0.3) : Color.clear
+    )
     .cornerRadius(6)
     .contentShape(Rectangle())
     .onHover { isHovered = $0 }

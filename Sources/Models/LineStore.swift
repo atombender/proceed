@@ -223,7 +223,8 @@ final class LineStore {
     if !excludeRegexes.isEmpty {
       // Limit to first 2000 chars to prevent regex backtracking
       // Use offsetBy:limitedBy: to avoid O(n) text.count operation
-      let endIndex = text.index(text.startIndex, offsetBy: 2000, limitedBy: text.endIndex) ?? text.endIndex
+      let endIndex =
+        text.index(text.startIndex, offsetBy: 2000, limitedBy: text.endIndex) ?? text.endIndex
       let range = NSRange(text.startIndex..<endIndex, in: text)
 
       for regex in excludeRegexes {

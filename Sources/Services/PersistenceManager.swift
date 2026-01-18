@@ -1388,14 +1388,15 @@ class PersistenceManager {
           let panelTitles = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
           let panelCount = Int(sqlite3_column_int(stmt, 4))
 
-          workspaces.append(WorkspaceInfo(
-            id: id,
-            name: name,
-            panelTitles: panelTitles.isEmpty ? [] : panelTitles.components(separatedBy: " • "),
-            isOpen: isOpen,
-            runningCount: 0,  // Will be updated by WorkspaceManager with live tmux status
-            totalPanelCount: panelCount
-          ))
+          workspaces.append(
+            WorkspaceInfo(
+              id: id,
+              name: name,
+              panelTitles: panelTitles.isEmpty ? [] : panelTitles.components(separatedBy: " • "),
+              isOpen: isOpen,
+              runningCount: 0,  // Will be updated by WorkspaceManager with live tmux status
+              totalPanelCount: panelCount
+            ))
         }
       }
       sqlite3_finalize(stmt)

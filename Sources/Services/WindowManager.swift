@@ -320,7 +320,8 @@ class WindowManager: ObservableObject {
       // Sort by windowId for deterministic restore order (matches save order)
       // Only load workspaces where is_open = 1
       let loaded = PersistenceManager.shared.loadMultiWindowState()?.windows ?? []
-      pendingRestoreStates = loaded
+      pendingRestoreStates =
+        loaded
         .filter { $0.isOpen }
         .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
       hasLoadedPendingStates = true
@@ -350,7 +351,8 @@ class WindowManager: ObservableObject {
       // Sort by windowId for deterministic restore order (matches save order)
       // Only count workspaces where is_open = 1
       let loaded = PersistenceManager.shared.loadMultiWindowState()?.windows ?? []
-      pendingRestoreStates = loaded
+      pendingRestoreStates =
+        loaded
         .filter { $0.isOpen }
         .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
       hasLoadedPendingStates = true
