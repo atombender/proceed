@@ -493,6 +493,9 @@ class Panel: ObservableObject, Identifiable, Equatable {
   /// Remembered split ratio for restoring after expand
   @Published var rememberedRatio: CGFloat?
 
+  /// Number of restart attempts for exponential backoff (persists across RunningProcess instances)
+  var restartAttempts: Int = 0
+
   init(
     id: UUID = UUID(),
     title: String,

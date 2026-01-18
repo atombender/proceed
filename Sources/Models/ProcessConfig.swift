@@ -100,8 +100,7 @@ class RunningProcess: ObservableObject, Identifiable {
   private var fileMonitor: FileMonitor?
   var onReloadRequest: (() -> Void)?
 
-  // Auto-restart support
-  private var restartAttempts: Int = 0
+  // Auto-restart support (restartAttempts is stored on Panel to persist across RunningProcess instances)
   private var resetBackoffTask: Task<Void, Never>?
 
   init(config: ProcessConfig, panel: Panel, onReloadRequest: (() -> Void)? = nil) {
@@ -177,7 +176,7 @@ class RunningProcess: ObservableObject, Identifiable {
           if !Task.isCancelled {
             await MainActor.run {
               if self.isRunning {
-                self.restartAttempts = 0
+                self.panel?.restartAttempts = 0
               }
             }
           }
@@ -331,10 +330,11 @@ class RunningProcess: ObservableObject, Identifiable {
     }
 
     if shouldRestart {
-      // Calculate delay
+      // Calculate delay using panel's restartAttempts (persists across RunningProcess instances)
       let initial = settings.restartInitialDelay
       let maxDelay = settings.restartMaxDelay
-      let delay = min(initial * pow(2.0, Double(restartAttempts)), maxDelay)
+      let attempts = panel?.restartAttempts ?? 0
+      let delay = min(initial * pow(2.0, Double(attempts)), maxDelay)
       let targetTime = Date().addingTimeInterval(delay)
 
       // Update panel status to show countdown
@@ -347,7 +347,7 @@ class RunningProcess: ObservableObject, Identifiable {
         await MainActor.run {
           // Check if still in restarting state (user didn't stop it manually)
           if case .restarting = self.panel?.status {
-            self.restartAttempts += 1
+            self.panel?.restartAttempts += 1
             self.onReloadRequest?()
           }
         }
