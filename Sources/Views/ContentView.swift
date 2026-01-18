@@ -36,6 +36,20 @@ struct ContentView: View {
     .sheet(isPresented: $tilingState.showRunDialog) {
       RunProcessDialog(tilingState: tilingState)
     }
+    .sheet(isPresented: $tilingState.showWorkspaceEditDialog) {
+      EditWorkspaceSheet(
+        workspace: WorkspaceInfo(
+          id: tilingState.stableWindowId ?? UUID(),
+          name: tilingState.name,
+          panelTitles: tilingState.panels.values.map { $0.title },
+          isOpen: true,
+          runningCount: 0,
+          totalPanelCount: tilingState.panels.count
+        )
+      ) { newName in
+        tilingState.name = newName
+      }
+    }
     .focusedSceneValue(\.tilingState, tilingState)
     .background {
       // Window accessor to track NSWindow and apply frame
@@ -48,12 +62,9 @@ struct ContentView: View {
       }
     }
     .onDisappear {
-      // Clean up all processes when window closes
-      tilingState.cleanupAllProcesses()
-
-      // Unregister when window closes
+      // Close window without killing processes (workspace persists)
       if let stableId = tilingState.stableWindowId {
-        WindowManager.shared.unregister(windowId: stableId)
+        WindowManager.shared.closeWindow(windowId: stableId)
       }
     }
   }

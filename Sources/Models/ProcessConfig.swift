@@ -399,7 +399,18 @@ class RunningProcess: ObservableObject, Identifiable {
     }
   }
 
-  /// Clean up all resources
+  /// Detach from process without killing it (for workspace close)
+  /// Stops monitoring and output streaming, but tmux session continues
+  func detach(using backend: TmuxBackend) {
+    monitorTask?.cancel()
+    fileMonitor?.stop()
+    fileMonitor = nil
+    if let handle = handle {
+      backend.stopOutput(for: handle.id)
+    }
+  }
+
+  /// Clean up all resources and kill the process
   func cleanup(using backend: TmuxBackend) {
     monitorTask?.cancel()
     fileMonitor?.stop()

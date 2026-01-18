@@ -507,25 +507,84 @@ final class LogContentView: NSView {
     heightUpdatePending = true
   }
 
-  /// Fast arithmetic measurement for simple lines (no wrapping, no special chars)
+  /// Fast arithmetic measurement with word wrapping for monospace font
+  /// Returns nil only for lines with badge characters (NUL, etc.) that render wider than 1 char
   private func fastMeasureHeight(for line: OutputLine, contentWidth: CGFloat) -> CGFloat? {
-    // 1. Check strict length limit (including invisible ANSI codes)
-    // If raw length fits, the visual length (shorter due to ANSI) definitely fits
-    // UNLESS there are expanding non-printables
-    guard CGFloat(line.rawText.count) * charWidth <= contentWidth else { return nil }
+    let text = line.plainText
+    guard !text.isEmpty else { return lineHeight }
 
-    // 2. Check for expanding control characters (ASCII < 32, except TAB/LF)
-    // These render as badges (e.g. [NUL]) which are wider than 1 char
-    for scalar in line.rawText.unicodeScalars {
-      let v = scalar.value
-      // Check for control chars that expand (exclude tab/newline which we handle or ignore)
-      if v < 32 && v != 9 && v != 10 {
+    let maxCol = max(1, Int(floor(contentWidth / charWidth)))
+
+    // Word-wrap calculation using UTF-8 bytes for speed
+    // Iterating over Character (grapheme clusters) is extremely slow for bridged NSStrings
+    var lines = 1
+    var col = 0
+    var wordLen = 0
+
+    for byte in text.utf8 {
+      // Skip UTF-8 continuation bytes (10xxxxxx) - they're part of multi-byte chars
+      if byte & 0xC0 == 0x80 {
+        continue
+      }
+
+      // Check for badge-rendering control chars (reject line)
+      if byte < 32 && byte != 10 && byte != 9 {
         return nil
+      }
+
+      if byte == 0x0A {  // newline
+        col += wordLen
+        wordLen = 0
+        lines += 1
+        col = 0
+      } else if byte == 0x09 {  // tab
+        if col + wordLen > maxCol && col > 0 {
+          lines += 1
+          col = wordLen
+        } else {
+          col += wordLen
+        }
+        wordLen = 0
+        let nextTab = ((col / 8) + 1) * 8
+        if nextTab > maxCol {
+          lines += 1
+          col = 0
+        } else {
+          col = nextTab
+        }
+      } else if byte == 0x20 {  // space
+        if col + wordLen > maxCol && col > 0 {
+          lines += 1
+          col = wordLen
+        } else {
+          col += wordLen
+        }
+        wordLen = 0
+        col += 1
+        if col > maxCol {
+          lines += 1
+          col = 0
+        }
+      } else {
+        // Regular char (ASCII or UTF-8 lead byte) - add to current word
+        wordLen += 1
+        if wordLen > maxCol {
+          if col > 0 {
+            lines += 1
+            col = 0
+          }
+          lines += 1
+          wordLen = 1
+        }
       }
     }
 
-    // Safe to assume single line height
-    return lineHeight
+    // Flush final word
+    if wordLen > 0 && col + wordLen > maxCol && col > 0 {
+      lines += 1
+    }
+
+    return CGFloat(lines) * lineHeight
   }
 
   func recalculateTotalHeight() {

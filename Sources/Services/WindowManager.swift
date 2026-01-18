@@ -1,12 +1,29 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Notifications
+
+extension Notification.Name {
+  /// Posted when workspace state changes (window opened, closed, panels changed)
+  static let workspacesDidChange = Notification.Name("workspacesDidChange")
+  /// Posted to request opening a new workspace window
+  static let requestNewWorkspace = Notification.Name("requestNewWorkspace")
+  /// Posted to request opening the workspace list window
+  static let requestOpenWorkspaceList = Notification.Name("requestOpenWorkspaceList")
+}
+
 /// Manages multiple window states for persistence
 class WindowManager: ObservableObject {
   static let shared = WindowManager()
 
+  /// Incremented when open workspaces change - observers can watch this for updates
+  @Published private(set) var workspaceChangeCount: Int = 0
+
   /// All active tiling states, keyed by window ID
   private var windowStates: [UUID: TilingState] = [:]
+
+  /// Observers for TilingState changes
+  private var stateObservers: [UUID: NSObjectProtocol] = [:]
   /// Associated NSWindows for frame tracking
   private var nsWindows: [UUID: NSWindow] = [:]
   private let lock = NSLock()
@@ -14,8 +31,12 @@ class WindowManager: ObservableObject {
   /// Saved states waiting to be claimed by windows on restore
   private var pendingRestoreStates: [WindowStateData] = []
   private var hasLoadedPendingStates = false
+  /// Workspace IDs that have already been claimed (prevents duplicates)
+  private var claimedWorkspaceIds: Set<UUID> = []
   /// Whether we're still in the restoration window
   private var isRestorationActive = true
+  /// Specific workspace ID to open (set by WorkspaceManager.openWorkspace)
+  private var pendingOpenWorkspaceId: UUID?
   /// Whether the app is terminating
   private var isTerminating = false
 
@@ -77,7 +98,20 @@ class WindowManager: ObservableObject {
     if let window = window {
       nsWindows[windowId] = window
     }
+
+    // Observe TilingState changes to notify workspace list
+    let observer = NotificationCenter.default.addObserver(
+      forName: .tilingStateDidChange,
+      object: state,
+      queue: .main
+    ) { [weak self] _ in
+      self?.notifyWorkspacesChanged()
+    }
+    stateObservers[windowId] = observer
+
     lock.unlock()
+
+    notifyWorkspacesChanged()
   }
 
   /// Associate an NSWindow with a window ID (called when window becomes available)
@@ -87,19 +121,85 @@ class WindowManager: ObservableObject {
     lock.unlock()
   }
 
-  /// Unregister a window when it closes
+  /// Unregister a window when it closes (legacy - kills processes and deletes state)
   func unregister(windowId: UUID) {
     lock.lock()
     if isTerminating {
       lock.unlock()
       return
     }
+
+    // Remove observer
+    if let observer = stateObservers.removeValue(forKey: windowId) {
+      NotificationCenter.default.removeObserver(observer)
+    }
+
     windowStates.removeValue(forKey: windowId)
     nsWindows.removeValue(forKey: windowId)
     lock.unlock()
 
     // Also delete from SQLite storage
     PersistenceManager.shared.deleteWindow(windowId)
+
+    notifyWorkspacesChanged()
+  }
+
+  /// Close a window without destroying its workspace
+  /// Detaches from processes (they continue running) and marks workspace as closed
+  func closeWindow(windowId: UUID) {
+    lock.lock()
+    if isTerminating {
+      lock.unlock()
+      return
+    }
+
+    // Remove observer
+    if let observer = stateObservers.removeValue(forKey: windowId) {
+      NotificationCenter.default.removeObserver(observer)
+    }
+
+    // Get and remove state
+    let state = windowStates.removeValue(forKey: windowId)
+    nsWindows.removeValue(forKey: windowId)
+    lock.unlock()
+
+    // Detach from processes (stop streaming, don't kill)
+    state?.detachFromProcesses()
+
+    // Mark workspace as closed in DB (don't delete)
+    PersistenceManager.shared.markWorkspaceClosed(windowId)
+
+    notifyWorkspacesChanged()
+  }
+
+  /// Signal that workspaces changed - increments counter for Combine observation
+  private func notifyWorkspacesChanged() {
+    DispatchQueue.main.async { [weak self] in
+      self?.workspaceChangeCount += 1
+    }
+  }
+
+  /// Get live workspace infos for all open workspaces
+  func openWorkspaceInfos() -> [WorkspaceInfo] {
+    lock.lock()
+    let states = windowStates
+    lock.unlock()
+
+    var infos: [WorkspaceInfo] = []
+    for (windowId, state) in states {
+      let panelTitles = state.panels.values.map { $0.title }
+      let runningCount = state.panels.values.filter { $0.status == .running }.count
+      let info = WorkspaceInfo(
+        id: windowId,
+        name: state.name,
+        panelTitles: Array(panelTitles),
+        isOpen: true,
+        runningCount: runningCount,
+        totalPanelCount: state.panels.count
+      )
+      infos.append(info)
+    }
+    return infos
   }
 
   /// Save all window states
@@ -181,7 +281,9 @@ class WindowManager: ObservableObject {
           frameX: frame?.origin.x,
           frameY: frame?.origin.y,
           frameWidth: frame?.size.width,
-          frameHeight: frame?.size.height
+          frameHeight: frame?.size.height,
+          name: tilingState.name,
+          isOpen: true
         ))
     }
 
@@ -189,17 +291,38 @@ class WindowManager: ObservableObject {
     PersistenceManager.shared.saveMultiWindowState(multiWindowState)
   }
 
+  /// Request to open a specific workspace by ID
+  /// The next window created will claim this workspace's state
+  func requestOpenWorkspace(id: UUID) {
+    lock.lock()
+    pendingOpenWorkspaceId = id
+    lock.unlock()
+  }
+
   /// Claim the next available saved state for a new window
   func claimNextState() -> WindowStateData? {
     lock.lock()
     defer { lock.unlock() }
 
+    // Check for a specific workspace request first
+    if let requestedId = pendingOpenWorkspaceId {
+      pendingOpenWorkspaceId = nil
+
+      // Load directly from persistence by ID
+      if let state = PersistenceManager.shared.loadWorkspaceState(requestedId) {
+        return state
+      }
+    }
+
     guard isRestorationActive else { return nil }
 
     if !hasLoadedPendingStates {
       // Sort by windowId for deterministic restore order (matches save order)
+      // Only load workspaces where is_open = 1
       let loaded = PersistenceManager.shared.loadMultiWindowState()?.windows ?? []
-      pendingRestoreStates = loaded.sorted { $0.windowId.uuidString < $1.windowId.uuidString }
+      pendingRestoreStates = loaded
+        .filter { $0.isOpen }
+        .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
       hasLoadedPendingStates = true
     }
 
@@ -218,15 +341,18 @@ class WindowManager: ObservableObject {
     lock.unlock()
   }
 
-  /// Get count of pending states
+  /// Get count of pending states (only workspaces that were open)
   func pendingStateCount() -> Int {
     lock.lock()
     defer { lock.unlock() }
 
     if !hasLoadedPendingStates {
       // Sort by windowId for deterministic restore order (matches save order)
+      // Only count workspaces where is_open = 1
       let loaded = PersistenceManager.shared.loadMultiWindowState()?.windows ?? []
-      pendingRestoreStates = loaded.sorted { $0.windowId.uuidString < $1.windowId.uuidString }
+      pendingRestoreStates = loaded
+        .filter { $0.isOpen }
+        .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
       hasLoadedPendingStates = true
     }
 
@@ -372,6 +498,32 @@ class WindowManager: ObservableObject {
     return true
   }
 
+  // MARK: - Workspace Support
+
+  /// Find if a workspace is open in a window
+  /// Returns the window ID and TilingState if found
+  func findOpenWorkspace(id: UUID) -> (windowId: UUID, state: TilingState)? {
+    lock.lock()
+    defer { lock.unlock() }
+
+    // Workspace ID is the same as window ID
+    if let state = windowStates[id] {
+      return (id, state)
+    }
+    return nil
+  }
+
+  /// Update workspace name for an open window
+  func updateWorkspaceName(id: UUID, name: String?) {
+    lock.lock()
+    let state = windowStates[id]
+    lock.unlock()
+
+    DispatchQueue.main.async {
+      state?.name = name
+    }
+  }
+
   private func convertToLayoutNode(_ node: TileNode) -> LayoutNode {
     switch node {
     case .leaf(let id, let panelId):
@@ -389,7 +541,7 @@ class WindowManager: ObservableObject {
   }
 }
 
-/// State data for a single window
+/// State data for a single window (workspace)
 struct WindowStateData: Codable {
   let windowId: UUID
   let panels: [PanelState]
@@ -400,6 +552,49 @@ struct WindowStateData: Codable {
   let frameY: CGFloat?
   let frameWidth: CGFloat?
   let frameHeight: CGFloat?
+  let name: String?
+  let isOpen: Bool
+
+  // Codable conformance with defaults for backward compatibility
+  enum CodingKeys: String, CodingKey {
+    case windowId, panels, layout, lastWorkingDirectory, lastCommand
+    case frameX, frameY, frameWidth, frameHeight
+    case name, isOpen
+  }
+
+  init(
+    windowId: UUID, panels: [PanelState], layout: LayoutNode?,
+    lastWorkingDirectory: String, lastCommand: String?,
+    frameX: CGFloat?, frameY: CGFloat?, frameWidth: CGFloat?, frameHeight: CGFloat?,
+    name: String? = nil, isOpen: Bool = true
+  ) {
+    self.windowId = windowId
+    self.panels = panels
+    self.layout = layout
+    self.lastWorkingDirectory = lastWorkingDirectory
+    self.lastCommand = lastCommand
+    self.frameX = frameX
+    self.frameY = frameY
+    self.frameWidth = frameWidth
+    self.frameHeight = frameHeight
+    self.name = name
+    self.isOpen = isOpen
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    windowId = try container.decode(UUID.self, forKey: .windowId)
+    panels = try container.decode([PanelState].self, forKey: .panels)
+    layout = try container.decodeIfPresent(LayoutNode.self, forKey: .layout)
+    lastWorkingDirectory = try container.decode(String.self, forKey: .lastWorkingDirectory)
+    lastCommand = try container.decodeIfPresent(String.self, forKey: .lastCommand)
+    frameX = try container.decodeIfPresent(CGFloat.self, forKey: .frameX)
+    frameY = try container.decodeIfPresent(CGFloat.self, forKey: .frameY)
+    frameWidth = try container.decodeIfPresent(CGFloat.self, forKey: .frameWidth)
+    frameHeight = try container.decodeIfPresent(CGFloat.self, forKey: .frameHeight)
+    name = try container.decodeIfPresent(String.self, forKey: .name)
+    isOpen = try container.decodeIfPresent(Bool.self, forKey: .isOpen) ?? true
+  }
 }
 
 /// State for all windows

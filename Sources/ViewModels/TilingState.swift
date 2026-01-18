@@ -1,13 +1,31 @@
 import Foundation
 import SwiftUI
+import os.log
+
+// MARK: - Notifications
+
+extension Notification.Name {
+  /// Posted when TilingState changes in a way that affects workspace list
+  static let tilingStateDidChange = Notification.Name("tilingStateDidChange")
+}
 
 /// Manages the overall tiling state and running processes
 class TilingState: ObservableObject {
+  /// Flag to suppress notifications during state restoration (prevents "Publishing changes" warning)
+  private var isRestoring = false
+
   @Published var panels: [UUID: Panel] = [:] {
-    didSet { WindowManager.shared.scheduleSave() }
+    didSet {
+      guard !isRestoring else { return }
+      WindowManager.shared.scheduleSave()
+      notifyStateChanged()
+    }
   }
   @Published var rootNode: TileNode? {
-    didSet { WindowManager.shared.scheduleSave() }
+    didSet {
+      guard !isRestoring else { return }
+      WindowManager.shared.scheduleSave()
+    }
   }
   @Published var dragState: DragState?
   @Published var processes: [UUID: RunningProcess] = [:]
@@ -27,6 +45,25 @@ class TilingState: ObservableObject {
 
   /// Panel being edited (nil for new process dialog)
   @Published var editingPanelId: UUID?
+
+  /// Workspace name (user-assigned, nil uses panel names as display)
+  @Published var name: String? {
+    didSet {
+      guard !isRestoring else { return }
+      WindowManager.shared.scheduleSave()
+      notifyStateChanged()
+    }
+  }
+
+  /// Whether the workspace edit dialog is shown
+  @Published var showWorkspaceEditDialog = false
+
+  /// Notify observers that this tiling state changed
+  private func notifyStateChanged() {
+    DispatchQueue.main.async {
+      NotificationCenter.default.post(name: .tilingStateDidChange, object: self)
+    }
+  }
 
   /// Stable window ID for frame persistence (restored from saved state or generated new)
   var stableWindowId: UUID?
@@ -68,8 +105,24 @@ class TilingState: ObservableObject {
 
   /// Synchronous restore for use during init (before @Published is set up)
   private func restoreFromWindowStateSync(_ state: WindowStateData) {
+    let restoreStart = CFAbsoluteTimeGetCurrent()
+
+    // Suppress notifications during restoration to avoid "Publishing changes from within view updates" warning
+    isRestoring = true
+    defer {
+      isRestoring = false
+      let elapsed = CFAbsoluteTimeGetCurrent() - restoreStart
+      os_log("Restore completed in %.3fs for %d panels", log: Logger.tilingState, type: .info, elapsed, state.panels.count)
+      // Notify once after restoration is complete (deferred to avoid view update conflicts)
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyStateChanged()
+        WindowManager.shared.scheduleSave()
+      }
+    }
+
     lastWorkingDirectory = state.lastWorkingDirectory
     lastCommand = state.lastCommand ?? ""
+    name = state.name
 
     // Restore frame
     // Restore panels
@@ -113,9 +166,9 @@ class TilingState: ObservableObject {
         processConfig: processConfig,
         tmuxHandleId: tmuxHandleId,
         isMinimized: panelState.isMinimized ?? false,
-        rememberedRatio: panelState.rememberedRatio
+        rememberedRatio: panelState.rememberedRatio,
+        isLoadingHistory: true  // Set during init to avoid @Published warning
       )
-      panel.isLoadingHistory = true
 
       panels[panel.id] = panel
 
@@ -158,8 +211,13 @@ class TilingState: ObservableObject {
     panels.count
   }
 
-  /// Window title based on panel names (e.g., "A • B" or just "A")
+  /// Window title: user-assigned name, or panel names (e.g., "A • B")
   var windowTitle: String {
+    // Use workspace name if set
+    if let name = name, !name.isEmpty {
+      return name
+    }
+
     guard let root = rootNode else { return "Proceed" }
 
     // Get panel IDs in layout order
@@ -172,10 +230,19 @@ class TilingState: ObservableObject {
     return titles.joined(separator: " • ")
   }
 
-  /// Clean up all processes when window closes
+  /// Clean up all processes when window closes (kills tmux sessions)
   func cleanupAllProcesses() {
     for (_, process) in processes {
       process.cleanup(using: backend)
+    }
+    processes.removeAll()
+  }
+
+  /// Detach from all processes without killing them (for workspace persistence)
+  /// Stops output streaming but leaves tmux sessions running
+  func detachFromProcesses() {
+    for (_, process) in processes {
+      process.detach(using: backend)
     }
     processes.removeAll()
   }
@@ -373,8 +440,10 @@ class TilingState: ObservableObject {
 
     // Force view hierarchy to refresh observation on this panel
     // This fixes an issue where OLD panels (restored from saved state) don't
-    // properly observe changes after restart
-    objectWillChange.send()
+    // properly observe changes after restart (dispatch async to avoid triggering during view updates)
+    DispatchQueue.main.async { [weak self] in
+      self?.objectWillChange.send()
+    }
 
     // Clean up any existing process entry
     if let existingProcess = processes.values.first(where: { $0.panelId == panelId }) {
@@ -492,57 +561,85 @@ class TilingState: ObservableObject {
       // Track if process was running before edit
       let wasRunning = panel.status == .running
 
-      // Stop existing process if running
-      if wasRunning {
-        stopProcess(forPanelId: panelId)
+      // Capture old handle ID for cleanup
+      let oldHandleId = panel.tmuxHandleId
+
+      // Remove existing process entry immediately (cleanup will happen in async kill)
+      if let existingProcess = processes.values.first(where: { $0.panelId == panelId }) {
+        processes.removeValue(forKey: existingProcess.config.id)
       }
 
-      // Update config (and restart only if was running)
-      Task {
-        // Wait for process to stop if it was running
-        if wasRunning {
-          for _ in 0..<50 {
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            if panel.status != .running {
-              break
-            }
+      // Create a new config with NEW ID to avoid tmux session name collision
+      // (the old session needs to be killed before we can reuse the name)
+      let restartConfig = ProcessConfig(
+        name: newConfig.name,
+        command: newConfig.command,
+        workingDirectory: newConfig.workingDirectory,
+        shell: newConfig.shell,
+        autoReloadEnabled: newConfig.autoReloadEnabled,
+        autoReloadIncludes: newConfig.autoReloadIncludes,
+        autoReloadExcludes: newConfig.autoReloadExcludes,
+        autoRestart: newConfig.autoRestart,
+        outputExcludeFilters: newConfig.outputExcludeFilters,
+        highlightPatterns: newConfig.highlightPatterns
+      )
+
+      // Update panel config, tmuxHandleId, and title
+      panel.processConfig = restartConfig
+      panel.tmuxHandleId = "proceed-\(restartConfig.id.uuidString)"
+      panel.title = restartConfig.displayName
+
+      // Update last used values
+      lastCommand = restartConfig.command
+      lastWorkingDirectory = restartConfig.workingDirectory
+
+      // IMPORTANT: Save BEFORE starting the process
+      WindowManager.shared.saveNow()
+
+      // Only restart if it was previously running
+      if wasRunning {
+        // Record in run history
+        PersistenceManager.shared.recordRun(config: restartConfig)
+
+        // Create new process
+        let runningProcess = RunningProcess(
+          config: restartConfig,
+          panel: panel,
+          onReloadRequest: { [weak self] in
+            self?.reloadProcess(forPanelId: panel.id)
+          }
+        )
+        processes[restartConfig.id] = runningProcess
+
+        // Kill old session first, then start new one
+        Task {
+          // Kill old tmux session if it exists
+          if let oldId = oldHandleId {
+            _ = try? await backend.kill(
+              handle: ProcessHandle(
+                id: oldId,
+                config: oldConfig,
+                pipePath: URL(fileURLWithPath: "/dev/null")
+              ))
+            backend.stopOutput(for: oldId)
+          }
+
+          // Now start the new process
+          await MainActor.run {
+            runningProcess.start(using: backend)
           }
         }
-
-        await MainActor.run {
-          // Update panel config, tmuxHandleId, and title
-          panel.processConfig = newConfig
-          panel.tmuxHandleId = "proceed-\(newConfig.id.uuidString)"
-          panel.title = newConfig.displayName
-
-          // Remove any existing process entry
-          if let existingProcess = processes.values.first(where: { $0.panelId == panelId }) {
-            existingProcess.cleanup(using: backend)
-            processes.removeValue(forKey: existingProcess.config.id)
-          }
-
-          // Update last used values
-          lastCommand = newConfig.command
-          lastWorkingDirectory = newConfig.workingDirectory
-
-          // IMPORTANT: Save BEFORE starting the process
-          WindowManager.shared.saveNow()
-
-          // Only restart if it was previously running
-          if wasRunning {
-            // Record in run history
-            PersistenceManager.shared.recordRun(config: newConfig)
-
-            // Create and start new process
-            let runningProcess = RunningProcess(
-              config: newConfig,
-              panel: panel,
-              onReloadRequest: { [weak self] in
-                self?.reloadProcess(forPanelId: panel.id)
-              }
-            )
-            processes[newConfig.id] = runningProcess
-            runningProcess.start(using: backend)
+      } else {
+        // Not running - just kill old session if exists
+        if let oldId = oldHandleId {
+          Task {
+            _ = try? await backend.kill(
+              handle: ProcessHandle(
+                id: oldId,
+                config: oldConfig,
+                pipePath: URL(fileURLWithPath: "/dev/null")
+              ))
+            backend.stopOutput(for: oldId)
           }
         }
       }
@@ -565,8 +662,12 @@ class TilingState: ObservableObject {
   /// Reconnect to processes that survived app restart
   func reconnectToExistingProcesses() {
     Task {
+      let reconnectStart = CFAbsoluteTimeGetCurrent()
       do {
+        let listStart = CFAbsoluteTimeGetCurrent()
         let handles = try await backend.listAll()
+        os_log("listAll() took %.3fs, found %d handles", log: Logger.tilingState, type: .debug,
+               CFAbsoluteTimeGetCurrent() - listStart, handles.count)
         var reconnectedHandleIds: Set<String> = []
 
         for handle in handles {
@@ -657,6 +758,8 @@ class TilingState: ObservableObject {
           }
         }
       }
+      os_log("reconnectToExistingProcesses completed in %.3fs", log: Logger.tilingState, type: .info,
+             CFAbsoluteTimeGetCurrent() - reconnectStart)
     }
   }
 

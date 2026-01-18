@@ -229,7 +229,8 @@ struct RunProcessDialog: View {
       let existingConfig = editingPanel?.processConfig
     else { return }
 
-    // IMPORTANT: Preserve the existing config.id to maintain tmux session identity
+    // Preserve existing config.id for non-restart edits (name/filter changes).
+    // If restart is needed, updateProcess() will create a new ID to avoid race conditions.
     let newConfig = ProcessConfig(
       id: existingConfig.id,
       name: name,

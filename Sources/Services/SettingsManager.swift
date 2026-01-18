@@ -351,9 +351,12 @@ class FileMonitor {
       FSEventStreamRelease(stream)
       self.stream = nil
     }
-    debounceTimer?.cancel()
-    debounceTimer = nil
-    changedPaths.removeAll()
+    // Synchronize access to changedPaths and debounceTimer with the queue
+    queue.sync {
+      debounceTimer?.cancel()
+      debounceTimer = nil
+      changedPaths.removeAll()
+    }
   }
 
   private func handleEvents(paths: [String]) {

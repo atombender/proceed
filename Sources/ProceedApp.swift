@@ -13,6 +13,42 @@ extension FocusedValues {
   }
 }
 
+// MARK: - Workspace Window Opener
+
+/// Helper view modifier that listens for workspace list window requests
+struct WorkspaceListOpener: ViewModifier {
+  @Environment(\.openWindow) private var openWindow
+
+  func body(content: Content) -> some View {
+    content
+      .onReceive(NotificationCenter.default.publisher(for: .requestOpenWorkspaceList)) { _ in
+        openWindow(id: "workspace-list")
+      }
+  }
+}
+
+/// Helper view modifier that listens for new workspace window requests
+struct NewWorkspaceOpener: ViewModifier {
+  @Environment(\.openWindow) private var openWindow
+
+  func body(content: Content) -> some View {
+    content
+      .onReceive(NotificationCenter.default.publisher(for: .requestNewWorkspace)) { _ in
+        openWindow(id: "workspace")
+      }
+  }
+}
+
+extension View {
+  func workspaceListOpener() -> some View {
+    modifier(WorkspaceListOpener())
+  }
+
+  func newWorkspaceOpener() -> some View {
+    modifier(NewWorkspaceOpener())
+  }
+}
+
 // MARK: - App
 
 @main
@@ -20,62 +56,19 @@ struct ProceedApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   @ObservedObject private var settingsManager = SettingsManager.shared
   @FocusedValue(\.tilingState) var focusedTilingState
+  @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
-    WindowGroup {
+    WindowGroup(id: "workspace") {
       ContentView()
         .environmentObject(settingsManager)
         .preferredColorScheme(settingsManager.colorScheme)
+        .workspaceListOpener()
     }
     .windowStyle(.automatic)
     .defaultSize(width: 1200, height: 800)
     .commands {
-      CommandGroup(replacing: .newItem) {
-        Button("New Window") {
-          NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
-        }
-        .keyboardShortcut("n", modifiers: .command)
-      }
-
-      // Add items to the existing View menu
-      CommandGroup(after: .toolbar) {
-        Divider()
-
-        Button("Run Process…") {
-          focusedTilingState?.editingPanelId = nil
-          focusedTilingState?.showRunDialog = true
-        }
-        .keyboardShortcut("r", modifiers: .command)
-
-        Button("Filter") {
-          focusedTilingState?.showFilterBarTrigger += 1
-        }
-        .keyboardShortcut("f", modifiers: .command)
-
-        Divider()
-
-        Button("Edit Panel…") {
-          if let panelId = focusedTilingState?.focusedPanelId {
-            focusedTilingState?.editingPanelId = panelId
-            focusedTilingState?.showRunDialog = true
-          }
-        }
-        .keyboardShortcut("e", modifiers: .command)
-
-        Button("Start/Stop") {
-          if let panelId = focusedTilingState?.focusedPanelId {
-            focusedTilingState?.toggleProcess(forPanelId: panelId)
-          }
-        }
-        .keyboardShortcut("s", modifiers: .command)
-
-        Button("Restart") {
-          if let panelId = focusedTilingState?.focusedPanelId {
-            focusedTilingState?.reloadProcess(forPanelId: panelId)
-          }
-        }
-        .keyboardShortcut("p", modifiers: .command)
-      }
+      appCommands
     }
 
     Settings {
@@ -83,6 +76,77 @@ struct ProceedApp: App {
         .environmentObject(settingsManager)
     }
 
+    Window("Workspaces", id: "workspace-list") {
+      WorkspaceListView()
+        .preferredColorScheme(settingsManager.colorScheme)
+        .newWorkspaceOpener()
+    }
+    .defaultSize(width: 350, height: 500)
+    .commands {
+      appCommands
+    }
+  }
+
+  @CommandsBuilder
+  private var appCommands: some Commands {
+    CommandGroup(replacing: .newItem) {
+      Button("New Workspace") {
+        openWindow(id: "workspace")
+      }
+      .keyboardShortcut("n", modifiers: .command)
+
+      Button("Edit Workspace...") {
+        focusedTilingState?.showWorkspaceEditDialog = true
+      }
+      .disabled(focusedTilingState == nil)
+
+      Divider()
+
+      Button("Show Workspaces") {
+        openWindow(id: "workspace-list")
+      }
+      .keyboardShortcut("0", modifiers: [.command, .shift])
+    }
+
+    // Add items to the existing View menu
+    CommandGroup(after: .toolbar) {
+      Divider()
+
+      Button("Run Process…") {
+        focusedTilingState?.editingPanelId = nil
+        focusedTilingState?.showRunDialog = true
+      }
+      .keyboardShortcut("r", modifiers: .command)
+
+      Button("Filter") {
+        focusedTilingState?.showFilterBarTrigger += 1
+      }
+      .keyboardShortcut("f", modifiers: .command)
+
+      Divider()
+
+      Button("Edit Panel…") {
+        if let panelId = focusedTilingState?.focusedPanelId {
+          focusedTilingState?.editingPanelId = panelId
+          focusedTilingState?.showRunDialog = true
+        }
+      }
+      .keyboardShortcut("e", modifiers: .command)
+
+      Button("Start/Stop") {
+        if let panelId = focusedTilingState?.focusedPanelId {
+          focusedTilingState?.toggleProcess(forPanelId: panelId)
+        }
+      }
+      .keyboardShortcut("s", modifiers: .command)
+
+      Button("Restart") {
+        if let panelId = focusedTilingState?.focusedPanelId {
+          focusedTilingState?.reloadProcess(forPanelId: panelId)
+        }
+      }
+      .keyboardShortcut("p", modifiers: .command)
+    }
   }
 }
 
@@ -118,9 +182,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
       self?.updateHTTPServerState()
     }
 
-    // Create additional windows for any remaining saved states
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-      self.restoreAdditionalWindows()
+    // End restoration mode after SwiftUI has created its windows
+    // SwiftUI's WindowGroup handles window restoration automatically
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+      WindowManager.shared.endRestoration()
+    }
+
+    // Restore workspace list window if it was open
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+      if UserDefaults.standard.bool(forKey: "workspaceListWindowOpen") {
+        NotificationCenter.default.post(name: .requestOpenWorkspaceList, object: nil)
+      }
     }
   }
 
@@ -241,6 +313,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     menu.addItem(NSMenuItem.separator())
 
+    let workspacesItem = NSMenuItem(
+      title: "Show Workspaces…", action: #selector(showWorkspaces), keyEquivalent: "")
+    workspacesItem.target = self
+    menu.addItem(workspacesItem)
+
     let settingsItem = NSMenuItem(
       title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
     settingsItem.target = self
@@ -277,6 +354,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     return image
   }
 
+  @objc private func showWorkspaces() {
+    NSApp.activate(ignoringOtherApps: true)
+    // Simulate Cmd+Shift+0 keyboard shortcut to open Workspaces window
+    let event = NSEvent.keyEvent(
+      with: .keyDown,
+      location: .zero,
+      modifierFlags: [.command, .shift],
+      timestamp: 0,
+      windowNumber: 0,
+      context: nil,
+      characters: "0",
+      charactersIgnoringModifiers: "0",
+      isARepeat: false,
+      keyCode: 29  // 0 key
+    )
+    if let event = event {
+      NSApp.sendEvent(event)
+    }
+  }
+
   @objc private func openSettings() {
     NSApp.activate(ignoringOtherApps: true)
     // Simulate Cmd+, keyboard shortcut to open Settings
@@ -309,24 +406,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func quitApp() {
     NSApplication.shared.terminate(nil)
-  }
-
-  private func restoreAdditionalWindows() {
-    // Create windows for any remaining saved states
-    let remainingCount = WindowManager.shared.pendingStateCount()
-    guard remainingCount > 0 else {
-      WindowManager.shared.endRestoration()
-      return
-    }
-
-    for _ in 0..<remainingCount {
-      NSApp.sendAction(#selector(NSWindow.newWindowForTab(_:)), to: nil, from: nil)
-    }
-
-    // End restoration after windows are created
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-      WindowManager.shared.endRestoration()
-    }
   }
 
   func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

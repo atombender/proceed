@@ -222,8 +222,8 @@ final class LineStore {
     // Check exclude filters (must not match any)
     if !excludeRegexes.isEmpty {
       // Limit to first 2000 chars to prevent regex backtracking
-      let maxLen = min(text.count, 2000)
-      let endIndex = text.index(text.startIndex, offsetBy: maxLen)
+      // Use offsetBy:limitedBy: to avoid O(n) text.count operation
+      let endIndex = text.index(text.startIndex, offsetBy: 2000, limitedBy: text.endIndex) ?? text.endIndex
       let range = NSRange(text.startIndex..<endIndex, in: text)
 
       for regex in excludeRegexes {
@@ -254,7 +254,16 @@ final class LineStore {
     let removeCount = allLines.count - maxLines
     allLines.removeFirst(removeCount)
 
-    // Rebuild indices since array shifted
-    rebuildVisibleIndices()
+    // Adjust visible indices efficiently instead of rebuilding from scratch
+    // This is O(visibleIndices.count) instead of O(allLines.count * filter_cost)
+    var newIndices: [Int] = []
+    newIndices.reserveCapacity(visibleIndices.count)
+    for idx in visibleIndices {
+      if idx >= removeCount {
+        newIndices.append(idx - removeCount)
+      }
+    }
+    visibleIndices = newIndices
+    cachedVisibleLines = nil  // Invalidate cache
   }
 }

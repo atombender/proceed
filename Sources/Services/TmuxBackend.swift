@@ -87,6 +87,11 @@ final class TmuxBackend: ProcessBackend {
     }
   }
 
+  /// Check if a tmux session exists by ID
+  func isSessionRunning(sessionId: String) async -> Bool {
+    listActiveSessions().contains(sessionId)
+  }
+
   // MARK: - ProcessBackend Implementation
 
   func start(config: ProcessConfig) async throws -> ProcessHandle {

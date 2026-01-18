@@ -183,7 +183,9 @@ class PersistenceManager {
           frame_width REAL,
           frame_height REAL,
           layout_json TEXT,
-          updated_at REAL NOT NULL
+          updated_at REAL NOT NULL,
+          name TEXT,
+          is_open INTEGER NOT NULL DEFAULT 1
       );
 
       CREATE TABLE IF NOT EXISTS panels (
@@ -227,6 +229,26 @@ class PersistenceManager {
       }
     }
     sqlite3_finalize(stateStmt)
+
+    // Migration: add name and is_open columns to windows table if they don't exist
+    let checkNameSql = "SELECT COUNT(*) FROM pragma_table_info('windows') WHERE name='name'"
+    var windowStmt: OpaquePointer?
+    if sqlite3_prepare_v2(stateDb, checkNameSql, -1, &windowStmt, nil) == SQLITE_OK {
+      if sqlite3_step(windowStmt) == SQLITE_ROW {
+        let count = sqlite3_column_int(windowStmt, 0)
+        if count == 0 {
+          sqlite3_exec(
+            stateDb,
+            "ALTER TABLE windows ADD COLUMN name TEXT",
+            nil, nil, nil)
+          sqlite3_exec(
+            stateDb,
+            "ALTER TABLE windows ADD COLUMN is_open INTEGER NOT NULL DEFAULT 1",
+            nil, nil, nil)
+        }
+      }
+    }
+    sqlite3_finalize(windowStmt)
 
     // Migrate from windows.json or old logs.db if needed
     migrateWindowStateIfNeeded()
@@ -814,8 +836,8 @@ class PersistenceManager {
 
         // Upsert window
         let windowSql = """
-          INSERT INTO windows (id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO windows (id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, updated_at, name, is_open)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             last_working_directory = excluded.last_working_directory,
             last_command = excluded.last_command,
@@ -824,7 +846,9 @@ class PersistenceManager {
             frame_width = excluded.frame_width,
             frame_height = excluded.frame_height,
             layout_json = excluded.layout_json,
-            updated_at = excluded.updated_at
+            updated_at = excluded.updated_at,
+            name = excluded.name,
+            is_open = excluded.is_open
           """
         if sqlite3_prepare_v2(stateDb, windowSql, -1, &stmt, nil) == SQLITE_OK {
           sqlite3_bind_text(
@@ -864,6 +888,13 @@ class PersistenceManager {
             sqlite3_bind_null(stmt, 8)
           }
           sqlite3_bind_double(stmt, 9, now)
+          if let name = windowData.name {
+            sqlite3_bind_text(
+              stmt, 10, name, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          } else {
+            sqlite3_bind_null(stmt, 10)
+          }
+          sqlite3_bind_int(stmt, 11, windowData.isOpen ? 1 : 0)
 
           if sqlite3_step(stmt) != SQLITE_DONE {
             os_log(
@@ -883,6 +914,21 @@ class PersistenceManager {
         sqlite3_finalize(stmt)
 
         // Insert panels
+        // First, collect all handle_ids we're about to insert to remove duplicates from other windows
+        let handleIds = windowData.panels.compactMap { $0.handleId }
+        for handleId in handleIds {
+          // Delete any panels in OTHER windows with this handle_id (prevents duplicates)
+          let deduplicateSql = "DELETE FROM panels WHERE handle_id = ? AND window_id != ?"
+          if sqlite3_prepare_v2(stateDb, deduplicateSql, -1, &stmt, nil) == SQLITE_OK {
+            sqlite3_bind_text(
+              stmt, 1, handleId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(
+              stmt, 2, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_step(stmt)
+          }
+          sqlite3_finalize(stmt)
+        }
+
         let panelSql =
           "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position, is_minimized, remembered_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         for (position, panel) in windowData.panels.enumerated() {
@@ -965,8 +1011,8 @@ class PersistenceManager {
 
       // Upsert window
       let windowSql = """
-        INSERT INTO windows (id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO windows (id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, updated_at, name, is_open)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           last_working_directory = excluded.last_working_directory,
           last_command = excluded.last_command,
@@ -975,7 +1021,9 @@ class PersistenceManager {
           frame_width = excluded.frame_width,
           frame_height = excluded.frame_height,
           layout_json = excluded.layout_json,
-          updated_at = excluded.updated_at
+          updated_at = excluded.updated_at,
+          name = excluded.name,
+          is_open = excluded.is_open
         """
       var stmt: OpaquePointer?
       if sqlite3_prepare_v2(stateDb, windowSql, -1, &stmt, nil) == SQLITE_OK {
@@ -1015,6 +1063,13 @@ class PersistenceManager {
           sqlite3_bind_null(stmt, 8)
         }
         sqlite3_bind_double(stmt, 9, now)
+        if let name = windowData.name {
+          sqlite3_bind_text(
+            stmt, 10, name, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        } else {
+          sqlite3_bind_null(stmt, 10)
+        }
+        sqlite3_bind_int(stmt, 11, windowData.isOpen ? 1 : 0)
 
         if sqlite3_step(stmt) != SQLITE_DONE {
           os_log(
@@ -1025,6 +1080,21 @@ class PersistenceManager {
       sqlite3_finalize(stmt)
 
       // Insert panels
+      // First, collect all handle_ids we're about to insert to remove duplicates from other windows
+      let handleIds = windowData.panels.compactMap { $0.handleId }
+      for handleId in handleIds {
+        // Delete any panels in OTHER windows with this handle_id (prevents duplicates)
+        let deduplicateSql = "DELETE FROM panels WHERE handle_id = ? AND window_id != ?"
+        if sqlite3_prepare_v2(stateDb, deduplicateSql, -1, &stmt, nil) == SQLITE_OK {
+          sqlite3_bind_text(
+            stmt, 1, handleId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_bind_text(
+            stmt, 2, windowId, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+          sqlite3_step(stmt)
+        }
+        sqlite3_finalize(stmt)
+      }
+
       let panelSql =
         "INSERT INTO panels (id, window_id, title, handle_id, status_json, config_json, position, is_minimized, remembered_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
       for (position, panel) in windowData.panels.enumerated() {
@@ -1088,7 +1158,7 @@ class PersistenceManager {
 
       // Load windows
       let windowSql =
-        "SELECT id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json FROM windows ORDER BY updated_at DESC"
+        "SELECT id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, name, is_open FROM windows ORDER BY updated_at DESC"
       var stmt: OpaquePointer?
 
       if sqlite3_prepare_v2(stateDb, windowSql, -1, &stmt, nil) == SQLITE_OK {
@@ -1119,6 +1189,11 @@ class PersistenceManager {
           {
             layout = try? decoder.decode(LayoutNode.self, from: layoutData)
           }
+
+          let name = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
+          let isOpen =
+            sqlite3_column_type(stmt, 9) != SQLITE_NULL
+            ? sqlite3_column_int(stmt, 9) != 0 : true
 
           // Load panels for this window
           var panels: [PanelState] = []
@@ -1184,7 +1259,9 @@ class PersistenceManager {
               frameX: frameX,
               frameY: frameY,
               frameWidth: frameWidth,
-              frameHeight: frameHeight
+              frameHeight: frameHeight,
+              name: name,
+              isOpen: isOpen
             ))
         }
       }
@@ -1220,6 +1297,231 @@ class PersistenceManager {
         }
       }
       sqlite3_finalize(stmt)
+    }
+  }
+
+  // MARK: - Workspace Management
+
+  /// Mark a workspace as closed (window hidden, but processes continue)
+  func markWorkspaceClosed(_ workspaceId: UUID) {
+    dbQueue.async { [weak self] in
+      guard let self = self, let stateDb = self.stateDb else { return }
+
+      let sql = "UPDATE windows SET is_open = 0 WHERE id = ?"
+      var stmt: OpaquePointer?
+
+      if sqlite3_prepare_v2(stateDb, sql, -1, &stmt, nil) == SQLITE_OK {
+        sqlite3_bind_text(
+          stmt, 1, workspaceId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_step(stmt)
+      }
+      sqlite3_finalize(stmt)
+    }
+  }
+
+  /// Mark a workspace as open (window attached)
+  func markWorkspaceOpen(_ workspaceId: UUID) {
+    dbQueue.async { [weak self] in
+      guard let self = self, let stateDb = self.stateDb else { return }
+
+      let sql = "UPDATE windows SET is_open = 1 WHERE id = ?"
+      var stmt: OpaquePointer?
+
+      if sqlite3_prepare_v2(stateDb, sql, -1, &stmt, nil) == SQLITE_OK {
+        sqlite3_bind_text(
+          stmt, 1, workspaceId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_step(stmt)
+      }
+      sqlite3_finalize(stmt)
+    }
+  }
+
+  /// Update workspace name
+  func updateWorkspaceName(_ workspaceId: UUID, name: String?) {
+    dbQueue.async { [weak self] in
+      guard let self = self, let stateDb = self.stateDb else { return }
+
+      let sql = "UPDATE windows SET name = ? WHERE id = ?"
+      var stmt: OpaquePointer?
+
+      if sqlite3_prepare_v2(stateDb, sql, -1, &stmt, nil) == SQLITE_OK {
+        if let name = name {
+          sqlite3_bind_text(
+            stmt, 1, name, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        } else {
+          sqlite3_bind_null(stmt, 1)
+        }
+        sqlite3_bind_text(
+          stmt, 2, workspaceId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        sqlite3_step(stmt)
+      }
+      sqlite3_finalize(stmt)
+    }
+  }
+
+  /// Load lightweight workspace info for all workspaces (for workspace list)
+  func loadAllWorkspaceInfos() -> [WorkspaceInfo] {
+    return dbQueue.sync { [weak self] () -> [WorkspaceInfo] in
+      guard let self = self, let stateDb = self.stateDb else { return [] }
+
+      var workspaces: [WorkspaceInfo] = []
+
+      // Query windows with their panel titles
+      let sql = """
+        SELECT w.id, w.name, w.is_open,
+               GROUP_CONCAT(p.title, ' • ') as panel_titles,
+               COUNT(p.id) as panel_count
+        FROM windows w
+        LEFT JOIN panels p ON p.window_id = w.id
+        GROUP BY w.id
+        ORDER BY w.updated_at DESC
+        """
+      var stmt: OpaquePointer?
+
+      if sqlite3_prepare_v2(stateDb, sql, -1, &stmt, nil) == SQLITE_OK {
+        while sqlite3_step(stmt) == SQLITE_ROW {
+          guard let idPtr = sqlite3_column_text(stmt, 0) else { continue }
+
+          let id = UUID(uuidString: String(cString: idPtr)) ?? UUID()
+          let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) }
+          let isOpen = sqlite3_column_int(stmt, 2) != 0
+          let panelTitles = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
+          let panelCount = Int(sqlite3_column_int(stmt, 4))
+
+          workspaces.append(WorkspaceInfo(
+            id: id,
+            name: name,
+            panelTitles: panelTitles.isEmpty ? [] : panelTitles.components(separatedBy: " • "),
+            isOpen: isOpen,
+            runningCount: 0,  // Will be updated by WorkspaceManager with live tmux status
+            totalPanelCount: panelCount
+          ))
+        }
+      }
+      sqlite3_finalize(stmt)
+
+      return workspaces
+    }
+  }
+
+  /// Load a specific workspace state for reopening
+  func loadWorkspaceState(_ workspaceId: UUID) -> WindowStateData? {
+    return dbQueue.sync { [weak self] () -> WindowStateData? in
+      guard let self = self, let stateDb = self.stateDb else { return nil }
+
+      let decoder = JSONDecoder()
+
+      let windowSql =
+        "SELECT id, last_working_directory, last_command, frame_x, frame_y, frame_width, frame_height, layout_json, name, is_open FROM windows WHERE id = ?"
+      var stmt: OpaquePointer?
+
+      guard sqlite3_prepare_v2(stateDb, windowSql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+      sqlite3_bind_text(
+        stmt, 1, workspaceId.uuidString, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+
+      guard sqlite3_step(stmt) == SQLITE_ROW,
+        let idPtr = sqlite3_column_text(stmt, 0),
+        let dirPtr = sqlite3_column_text(stmt, 1)
+      else {
+        sqlite3_finalize(stmt)
+        return nil
+      }
+
+      let windowId = UUID(uuidString: String(cString: idPtr)) ?? UUID()
+      let lastDir = String(cString: dirPtr)
+      let lastCmd = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
+      let frameX =
+        sqlite3_column_type(stmt, 3) != SQLITE_NULL
+        ? CGFloat(sqlite3_column_double(stmt, 3)) : nil
+      let frameY =
+        sqlite3_column_type(stmt, 4) != SQLITE_NULL
+        ? CGFloat(sqlite3_column_double(stmt, 4)) : nil
+      let frameWidth =
+        sqlite3_column_type(stmt, 5) != SQLITE_NULL
+        ? CGFloat(sqlite3_column_double(stmt, 5)) : nil
+      let frameHeight =
+        sqlite3_column_type(stmt, 6) != SQLITE_NULL
+        ? CGFloat(sqlite3_column_double(stmt, 6)) : nil
+
+      var layout: LayoutNode? = nil
+      if let layoutPtr = sqlite3_column_text(stmt, 7),
+        let layoutData = String(cString: layoutPtr).data(using: .utf8)
+      {
+        layout = try? decoder.decode(LayoutNode.self, from: layoutData)
+      }
+
+      let name = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
+      let isOpen =
+        sqlite3_column_type(stmt, 9) != SQLITE_NULL
+        ? sqlite3_column_int(stmt, 9) != 0 : true
+
+      sqlite3_finalize(stmt)
+
+      // Load panels for this window
+      var panels: [PanelState] = []
+      let panelSql =
+        "SELECT id, title, handle_id, status_json, config_json, is_minimized, remembered_ratio FROM panels WHERE window_id = ? ORDER BY position"
+      var panelStmt: OpaquePointer?
+
+      if sqlite3_prepare_v2(stateDb, panelSql, -1, &panelStmt, nil) == SQLITE_OK {
+        sqlite3_bind_text(
+          panelStmt, 1, windowId.uuidString, -1,
+          unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+
+        while sqlite3_step(panelStmt) == SQLITE_ROW {
+          guard let panelIdPtr = sqlite3_column_text(panelStmt, 0),
+            let titlePtr = sqlite3_column_text(panelStmt, 1),
+            let statusPtr = sqlite3_column_text(panelStmt, 3)
+          else { continue }
+
+          let panelId = UUID(uuidString: String(cString: panelIdPtr)) ?? UUID()
+          let title = String(cString: titlePtr)
+          let handleId = sqlite3_column_text(panelStmt, 2).map { String(cString: $0) }
+
+          let status: PanelStatusState
+          if let statusData = String(cString: statusPtr).data(using: .utf8),
+            let decoded = try? decoder.decode(PanelStatusState.self, from: statusData)
+          {
+            status = decoded
+          } else {
+            status = .exitedNormally
+          }
+
+          var config: ProcessConfigState? = nil
+          if let configPtr = sqlite3_column_text(panelStmt, 4),
+            let configData = String(cString: configPtr).data(using: .utf8)
+          {
+            config = try? decoder.decode(ProcessConfigState.self, from: configData)
+          }
+
+          let isMinimized =
+            sqlite3_column_type(panelStmt, 5) != SQLITE_NULL
+            ? sqlite3_column_int(panelStmt, 5) != 0 : false
+          let rememberedRatio: CGFloat? =
+            sqlite3_column_type(panelStmt, 6) != SQLITE_NULL
+            ? CGFloat(sqlite3_column_double(panelStmt, 6)) : nil
+
+          panels.append(
+            PanelState(
+              id: panelId, title: title, processConfig: config, status: status,
+              handleId: handleId, isMinimized: isMinimized, rememberedRatio: rememberedRatio))
+        }
+      }
+      sqlite3_finalize(panelStmt)
+
+      return WindowStateData(
+        windowId: windowId,
+        panels: panels,
+        layout: layout,
+        lastWorkingDirectory: lastDir,
+        lastCommand: lastCmd,
+        frameX: frameX,
+        frameY: frameY,
+        frameWidth: frameWidth,
+        frameHeight: frameHeight,
+        name: name,
+        isOpen: isOpen
+      )
     }
   }
 

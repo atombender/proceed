@@ -412,6 +412,56 @@ class Panel: ObservableObject, Identifiable, Equatable {
   /// The line store managing all output lines and filtering
   let lineStore: LineStore
 
+  // MARK: - Update Throttling (prevents UI flooding with high-volume output)
+
+  /// Minimum interval between objectWillChange notifications (60fps = ~16ms)
+  private static let updateThrottleInterval: TimeInterval = 1.0 / 60.0
+
+  /// Last time objectWillChange.send() was actually called
+  private var lastUpdateTime: CFAbsoluteTime = 0
+
+  /// Whether an update is scheduled but not yet fired
+  private var updateScheduled = false
+
+  /// Lock for thread-safe access to throttle state
+  private let throttleLock = NSLock()
+
+  /// Throttled notification that coalesces rapid updates
+  /// This prevents UI hangs when processes emit hundreds of thousands of lines
+  private func scheduleUpdate() {
+    throttleLock.lock()
+    let now = CFAbsoluteTimeGetCurrent()
+    let elapsed = now - lastUpdateTime
+
+    if elapsed >= Panel.updateThrottleInterval {
+      // Enough time has passed, send immediately
+      lastUpdateTime = now
+      throttleLock.unlock()
+
+      DispatchQueue.main.async { [weak self] in
+        self?.objectWillChange.send()
+      }
+    } else if !updateScheduled {
+      // Schedule an update for later
+      updateScheduled = true
+      let delay = Panel.updateThrottleInterval - elapsed
+      throttleLock.unlock()
+
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        guard let self = self else { return }
+        self.throttleLock.lock()
+        self.updateScheduled = false
+        self.lastUpdateTime = CFAbsoluteTimeGetCurrent()
+        self.throttleLock.unlock()
+
+        self.objectWillChange.send()
+      }
+    } else {
+      // Update already scheduled, nothing to do
+      throttleLock.unlock()
+    }
+  }
+
   /// Convenience accessor for all lines (for backward compatibility)
   var lines: [OutputLine] {
     lineStore.visibleLines
@@ -453,7 +503,8 @@ class Panel: ObservableObject, Identifiable, Equatable {
     startedAt: Date? = nil,
     stoppedAt: Date? = nil,
     isMinimized: Bool = false,
-    rememberedRatio: CGFloat? = nil
+    rememberedRatio: CGFloat? = nil,
+    isLoadingHistory: Bool = false
   ) {
     self.id = id
     self.title = title
@@ -464,6 +515,7 @@ class Panel: ObservableObject, Identifiable, Equatable {
     self.stoppedAt = stoppedAt
     self.isMinimized = isMinimized
     self.rememberedRatio = rememberedRatio
+    self.isLoadingHistory = isLoadingHistory
 
     // Initialize line store
     self.lineStore = LineStore(panelId: id)
@@ -488,8 +540,7 @@ class Panel: ObservableObject, Identifiable, Equatable {
     let timestamp = Date()
     let line = OutputLine(text: text, timestamp: timestamp, kind: kind)
     lineStore.append(line)
-    // Notify observers that panel content changed
-    objectWillChange.send()
+    scheduleUpdate()
   }
 
   /// Append multiple lines at once (more efficient for batched updates)
@@ -497,8 +548,7 @@ class Panel: ObservableObject, Identifiable, Equatable {
     let timestamp = Date()
     let newLines = texts.map { OutputLine(text: $0, timestamp: timestamp, kind: kind) }
     lineStore.append(contentsOf: newLines)
-    // Notify observers that panel content changed
-    objectWillChange.send()
+    scheduleUpdate()
   }
 
   /// Append a meta event (started, stopped, etc.)
@@ -510,13 +560,12 @@ class Panel: ObservableObject, Identifiable, Equatable {
   func prependHistory(_ historyLines: [OutputLine]) {
     guard !historyLines.isEmpty else { return }
     lineStore.prependHistory(historyLines)
-    // Notify observers that panel content changed
-    objectWillChange.send()
+    scheduleUpdate()
   }
 
   /// Set the search/filter pattern
   func setSearchPattern(_ pattern: String) {
     lineStore.setSearchPattern(pattern)
-    objectWillChange.send()
+    scheduleUpdate()
   }
 }
