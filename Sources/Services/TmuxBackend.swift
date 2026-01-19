@@ -176,16 +176,24 @@ final class TmuxBackend: ProcessBackend {
   }
 
   func stop(handle: ProcessHandle) async throws {
-    // Send Ctrl+C (SIGINT) to the process
-    _ = try await runTmux(["send-keys", "-t", handle.id, "C-c"])
+    // Get the PID of the process running in the tmux pane
+    if let pid = await getPanePid(sessionId: handle.id) {
+      // Send SIGTERM to the entire process group (negative PID)
+      // This ensures child processes also receive the signal
+      let result = await runCommand("/bin/kill", args: ["-TERM", "-\(pid)"])
+      if result.exitCode != 0 {
+        // Fallback: try sending to just the process if process group fails
+        _ = await runCommand("/bin/kill", args: ["-TERM", "\(pid)"])
+      }
 
-    // Give it a moment, then send SIGTERM if still running
-    try await Task.sleep(nanoseconds: 500_000_000)  // 0.5s
-
-    if await isRunning(handle: handle) {
-      // Send SIGTERM via tmux
-      _ = try await runTmux(["send-keys", "-t", handle.id, "C-\\"])
+      // Give it a moment to exit gracefully
       try await Task.sleep(nanoseconds: 500_000_000)  // 0.5s
+
+      // If still running, escalate to SIGKILL on the process group
+      if await isRunning(handle: handle) {
+        _ = await runCommand("/bin/kill", args: ["-KILL", "-\(pid)"])
+        try await Task.sleep(nanoseconds: 200_000_000)  // 0.2s
+      }
     }
 
     // Kill the session to clean up (even if process already exited)
@@ -193,12 +201,56 @@ final class TmuxBackend: ProcessBackend {
   }
 
   func kill(handle: ProcessHandle) async throws {
-    // Kill the entire tmux session
+    // Get the PID and kill the entire process group
+    if let pid = await getPanePid(sessionId: handle.id) {
+      // SIGKILL the entire process group
+      _ = await runCommand("/bin/kill", args: ["-KILL", "-\(pid)"])
+    }
+
+    // Kill the tmux session
     let result = try await runTmux(["kill-session", "-t", handle.id])
     if result.exitCode != 0 && !result.stderr.contains("no server running")
       && !result.stderr.contains("session not found")
     {
       throw ProcessBackendError.commandFailed(result.stderr)
+    }
+  }
+
+  /// Get the PID of the process running in a tmux pane
+  private func getPanePid(sessionId: String) async -> Int32? {
+    let result = try? await runTmux(["display-message", "-t", sessionId, "-p", "#{pane_pid}"])
+    guard let output = result?.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+          let pid = Int32(output) else {
+      return nil
+    }
+    return pid
+  }
+
+  /// Run a shell command (not tmux)
+  private func runCommand(_ path: String, args: [String]) async -> (exitCode: Int32, stdout: String, stderr: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: path)
+    process.arguments = args
+
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    do {
+      try process.run()
+      process.waitUntilExit()
+
+      let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+      let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+      return (
+        process.terminationStatus,
+        String(data: stdoutData, encoding: .utf8) ?? "",
+        String(data: stderrData, encoding: .utf8) ?? ""
+      )
+    } catch {
+      return (-1, "", error.localizedDescription)
     }
   }
 

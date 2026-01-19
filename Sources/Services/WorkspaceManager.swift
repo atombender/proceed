@@ -59,14 +59,14 @@ class WorkspaceManager: ObservableObject {
 
     if !closedIds.isEmpty {
       Task { @MainActor in
-        var updated = self.workspaces
-        for (index, workspaceId) in closedIds {
-          // Make sure the index is still valid and refers to the same workspace
-          guard index < updated.count, updated[index].id == workspaceId else { continue }
+        for (_, workspaceId) in closedIds {
           let runningCount = await countRunningProcesses(for: workspaceId)
-          updated[index].runningCount = runningCount
+          // Update only the runningCount for this specific workspace
+          // This avoids overwriting other fields (like isOpen) that may have changed
+          if let idx = self.workspaces.firstIndex(where: { $0.id == workspaceId }) {
+            self.workspaces[idx].runningCount = runningCount
+          }
         }
-        self.workspaces = updated
       }
     }
   }

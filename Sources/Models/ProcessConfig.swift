@@ -359,7 +359,9 @@ class RunningProcess: ObservableObject, Identifiable {
   func terminate(using backend: TmuxBackend) {
     guard let handle = handle else { return }
 
-    // Stop monitoring immediately to prevent further reload triggers during shutdown
+    // Stop all monitoring immediately to prevent auto-restart and reload triggers
+    monitorTask?.cancel()
+    monitorTask = nil
     fileMonitor?.stop()
     fileMonitor = nil
     resetBackoffTask?.cancel()
@@ -394,8 +396,25 @@ class RunningProcess: ObservableObject, Identifiable {
   /// Kill the process forcefully
   func kill(using backend: TmuxBackend) {
     guard let handle = handle else { return }
+
+    // Stop all monitoring immediately to prevent auto-restart
+    monitorTask?.cancel()
+    monitorTask = nil
+    fileMonitor?.stop()
+    fileMonitor = nil
+    resetBackoffTask?.cancel()
+
     Task {
       try? await backend.kill(handle: handle)
+
+      await MainActor.run {
+        self.isRunning = false
+        self.panel?.status = .exitedNormally
+        self.panel?.stoppedAt = Date()
+        if self.panel?.lines.last?.kind != .stopped {
+          self.panel?.appendEvent(.stopped, message: "Process killed")
+        }
+      }
     }
   }
 
